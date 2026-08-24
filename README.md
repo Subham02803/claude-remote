@@ -6,9 +6,9 @@ The work happens on your machine, in your projects, with your setup. This is a
 remote control for it — so a run does not sit idle for an hour waiting for you
 to answer one question.
 
-> Status: early. Step 0 (project skeleton) is done; authentication is next.
-> See `docs/01-product-scope.md` for what this is and is not, and
-> `design/prototype.html` for the interface it is being built towards.
+> Status: early. The skeleton and authentication are done; the terminal, projects
+> and sessions are next. See `docs/01-product-scope.md` for what this is and is
+> not, and `design/prototype.html` for the interface it is being built towards.
 
 ## Requirements
 
@@ -42,8 +42,43 @@ Set `AUTH_MODE` in `.env`:
 | `google` | Google sign-in | Authenticator code | Google OAuth client, `ALLOWED_EMAIL`, `PUBLIC_URL` |
 
 A code from an authenticator app is always required for `local` and `google` —
-identity alone never grants access. Google is entirely optional; nothing about
-the app depends on having a Google account.
+proving who you are never grants access on its own. Google is entirely optional;
+nothing about the app depends on having a Google account.
+
+### Claiming the installation
+
+The first time you start with `AUTH_MODE` set to `local` or `google`, the server
+prints a **setup token** to its own console:
+
+```
+────────────────────────────────────────────────────────────────────
+  This installation has no owner yet.
+
+  Open  http://127.0.0.1:4180
+  Setup token:  4CjBIhc3cHJuP2aikEXzvMTUlXSMuzgu
+────────────────────────────────────────────────────────────────────
+```
+
+Opening the app then asks for that token before it will let anyone enrol. This
+matters because the app is meant to be reachable through a tunnel: without it,
+whoever loaded the address first would become the owner. Needing a value that
+only appears on the machine's own console means you have to already have access
+to the machine to claim it.
+
+After the token comes your identity (Google, or an email and password), then a
+QR code for your authenticator app. Scanning it and entering one code completes
+setup and spends the token.
+
+To start over, stop the server and delete `data/claude-remote.db`.
+
+### Sessions
+
+Sessions are held server side, so revoking really revokes. A browser marked as
+trusted stays signed in for 30 days; one that is not lasts 12 hours. **Lock all
+access** signs every browser out at once, including the one you are using.
+
+Eight wrong codes within fifteen minutes locks the second layer for the rest of
+that window, valid codes included.
 
 ## Reaching it from outside (ngrok)
 
@@ -60,7 +95,8 @@ the app depends on having a Google account.
    ```
 
 Anything reachable through the tunnel is reachable by anyone who has the URL.
-Do not open a tunnel with `AUTH_MODE=none`.
+Do not open a tunnel with `AUTH_MODE=none` — the server refuses to bind anywhere
+but loopback in that mode for exactly this reason.
 
 ## Setting up Google sign-in
 
@@ -86,7 +122,8 @@ seven-day testing-mode expiry does not affect it.
 ## Layout
 
 ```
-apps/server        Fastify API, database, and (soon) the bridge to Claude Code
+apps/server        Fastify API, authentication, database, and (soon) the
+                   bridge to Claude Code
 apps/web           React app
 packages/shared    Types used by both, so the two cannot drift
 design             Interface prototype

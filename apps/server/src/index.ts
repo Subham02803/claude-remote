@@ -1,6 +1,12 @@
+import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
+import { registerAuthGuard } from './auth/guard.js';
+import { ensureSetupToken } from './auth/setup.js';
+import { purgeExpired } from './auth/store.js';
 import { ConfigError, loadConfig } from './config.js';
 import { type Db, openDatabase } from './db/index.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoutes } from './routes/health.js';
 
 const startedAt = Date.now();
@@ -33,9 +39,10 @@ async function main(): Promise<void> {
             }
           : undefined,
     },
-    // The tunnel terminates TLS, so the real scheme and client IP arrive in
-    // headers. Needed before any cookie is issued: without it, Secure cookies
-    // would be judged against http and the client IP would always be the tunnel.
+    // The tunnel terminates TLS, so the real scheme and client address arrive in
+    // headers. This must be on before any cookie is issued: without it, Secure
+    // cookies would be judged against http and every client would look like the
+    // tunnel's own address.
     trustProxy: true,
     disableRequestLogging: config.logLevel !== 'debug' && config.logLevel !== 'trace',
   });
@@ -48,6 +55,38 @@ async function main(): Promise<void> {
     fail(`Could not open the database at ${config.databasePath}.`);
   }
 
+  purgeExpired(db.handle);
+
+  // Some endpoints — signing out, revoking every browser — are a POST with
+  // nothing to say. Fastify rejects an empty body when the content type claims
+  // JSON, so accept it as an empty object rather than making clients omit a
+  // header they would otherwise always send.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const raw = typeof body === 'string' ? body.trim() : '';
+    if (raw === '') {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(raw));
+    } catch {
+      done(Object.assign(new Error('Body is not valid JSON.'), { statusCode: 400 }), undefined);
+    }
+  });
+
+  // Cookies must be registered before the guard, which reads them.
+  await app.register(cookie);
+  await app.register(rateLimit, {
+    global: false,
+    max: 300,
+    timeWindow: '1 minute',
+    // One account, so limiting per address is about slowing down an attacker
+    // rather than being fair between users.
+    keyGenerator: (req) => req.ip,
+  });
+
+  registerAuthGuard(app, config, db.handle);
+  registerAuthRoutes(app, config, db.handle);
   registerHealthRoutes(app, config, db, startedAt);
 
   app.setNotFoundHandler(async (_req, reply) =>
@@ -76,13 +115,12 @@ async function main(): Promise<void> {
   }
 
   app.log.info(
-    {
-      authMode: config.authMode,
-      publicUrl: config.publicUrl ?? '(none)',
-      version: config.version,
-    },
+    { authMode: config.authMode, publicUrl: config.publicUrl ?? '(none)', version: config.version },
     'claude-remote server ready',
   );
+
+  // Printed after the ready line so it is the last thing on the console.
+  ensureSetupToken(db.handle, config, app.log);
 }
 
 void main();
