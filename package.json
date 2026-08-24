@@ -6,15 +6,16 @@
   "description": "Drive Claude Code on your own machine from any browser",
   "license": "MIT",
   "packageManager": "pnpm@9.12.3",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "dev:server": "pnpm --filter @claude-remote/server dev",
     "dev:web": "pnpm --filter @claude-remote/web dev",
     "typecheck": "pnpm -r typecheck",
     "check": "biome check .",
-    "format": "biome check --write .",
-    "tunnel": "bash scripts/tunnel.sh"
+    "format": "biome check --write ."
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

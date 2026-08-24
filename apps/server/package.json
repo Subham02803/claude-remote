@@ -10,20 +10,15 @@
   },
   "dependencies": {
     "@claude-remote/shared": "workspace:*",
-    "@fastify/cookie": "^11.1.2",
     "@fastify/rate-limit": "^11.2.0",
     "better-sqlite3": "^11.5.0",
     "fastify": "^5.1.0",
-    "jose": "^6.2.10",
-    "otpauth": "^9.5.1",
     "pino-pretty": "^13.0.0",
-    "qrcode": "^1.5.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.9.0",
-    "@types/qrcode": "^1.5.6",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

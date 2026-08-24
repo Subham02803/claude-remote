@@ -7,11 +7,15 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    // Loopback only. The tunnel points at the API server, not at Vite.
-    host: '127.0.0.1',
+    // All interfaces, so the dev server is reachable from a phone over the
+    // tailnet. What limits who can actually connect is the network, not this.
+    host: true,
+    // Vite rejects requests naming a host it does not recognise, which would
+    // otherwise block every tailnet address. `.ts.net` covers MagicDNS names;
+    // the plain 100.x addresses are matched by Vite's IP handling.
+    allowedHosts: ['.ts.net'],
     proxy: {
       '/api': { target: `http://127.0.0.1:${SERVER_PORT}`, changeOrigin: true },
-      '/auth': { target: `http://127.0.0.1:${SERVER_PORT}`, changeOrigin: true },
     },
   },
 });

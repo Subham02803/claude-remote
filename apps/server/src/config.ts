@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { dirname, resolve } from 'node:path';
-import type { AuthMode } from '@claude-remote/shared';
 import { z } from 'zod';
+import { hostname } from './security/hosts.js';
 
 /** Repo root, three levels up from apps/server/src. */
 export const repoRoot = resolve(import.meta.dirname, '../../..');
@@ -15,18 +15,21 @@ function isLoopback(host: string): boolean {
   return isIP(host) === 4 && host.startsWith('127.');
 }
 
+/** Tailscale hands out addresses from 100.64.0.0/10. */
+function isTailscale(host: string): boolean {
+  if (isIP(host) !== 4) return false;
+  const p = host.split('.').map(Number);
+  return p[0] === 100 && p[1]! >= 64 && p[1]! <= 127;
+}
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   HOST: z.string().min(1).default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4180),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   DATABASE_PATH: z.string().min(1).default('./data/claude-remote.db'),
-  AUTH_MODE: z.enum(['google', 'local', 'none']).default('none'),
-  SESSION_SECRET: z.string().optional(),
-  ALLOWED_EMAIL: z.string().email().optional(),
   PUBLIC_URL: z.string().url().optional(),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  ALLOWED_HOSTS: z.string().optional(),
 });
 
 export interface Config {
@@ -36,11 +39,10 @@ export interface Config {
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
   /** Absolute path. Its directory is created on boot. */
   databasePath: string;
-  authMode: AuthMode;
-  sessionSecret: string | null;
-  allowedEmail: string | null;
+  /** The name this server is reached by from other devices, when there is one. */
   publicUrl: string | null;
-  google: { clientId: string; clientSecret: string } | null;
+  /** Extra host names to answer to, beyond loopback and the tailnet. */
+  allowedHosts: string[];
   /** True when HOST cannot be reached from outside this machine. */
   boundToLoopback: boolean;
   version: string;
@@ -87,74 +89,45 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const warnings: string[] = [];
   const loopback = isLoopback(e.HOST);
 
-  // AUTH_MODE=none means anyone who can reach the port is the owner. Only
-  // tolerable when the port is unreachable from off-machine.
-  if (e.AUTH_MODE === 'none' && !loopback) {
+  // There is no sign-in, so whoever can reach the port is the owner. The only
+  // two places that is true of the right people are this machine and the
+  // tailnet. Binding anywhere else — 0.0.0.0 above all — would put an
+  // unauthenticated door on the local network.
+  if (!loopback && !isTailscale(e.HOST)) {
     problems.push(
-      `AUTH_MODE=none is only allowed when HOST is a loopback address (got "${e.HOST}"). Set AUTH_MODE=local or google, or bind to 127.0.0.1.`,
+      `HOST must be a loopback address or this machine's Tailscale address (got "${e.HOST}"). There is no sign-in, so binding anywhere else exposes an unauthenticated server. Use 127.0.0.1 and reach it with "tailscale serve", or bind directly to your 100.x.y.z address.`,
     );
-  }
-
-  if (e.AUTH_MODE !== 'none') {
-    if (!e.SESSION_SECRET || e.SESSION_SECRET.length < 32) {
-      problems.push(
-        `SESSION_SECRET must be at least 32 characters for AUTH_MODE=${e.AUTH_MODE}. Generate one with: openssl rand -base64 48`,
-      );
-    }
-  }
-
-  if (e.AUTH_MODE === 'google') {
-    if (!e.GOOGLE_CLIENT_ID) problems.push('GOOGLE_CLIENT_ID is required for AUTH_MODE=google.');
-    if (!e.GOOGLE_CLIENT_SECRET) {
-      problems.push('GOOGLE_CLIENT_SECRET is required for AUTH_MODE=google.');
-    }
-    if (!e.ALLOWED_EMAIL) {
-      problems.push(
-        'ALLOWED_EMAIL is required for AUTH_MODE=google, so exactly one account can sign in.',
-      );
-    }
-    if (!e.PUBLIC_URL) {
-      problems.push(
-        'PUBLIC_URL is required for AUTH_MODE=google: Google needs one exact redirect URI.',
-      );
-    }
   }
 
   if (e.PUBLIC_URL) {
     const url = new URL(e.PUBLIC_URL);
-    if (url.protocol !== 'https:' && !isLoopback(url.hostname)) {
-      problems.push(`PUBLIC_URL must use https (got "${e.PUBLIC_URL}").`);
-    }
     if (e.PUBLIC_URL.endsWith('/')) {
       warnings.push('PUBLIC_URL has a trailing slash; it will be ignored.');
     }
-  }
-
-  if (e.AUTH_MODE === 'none') {
-    warnings.push('AUTH_MODE=none: no sign-in required. Do not open a tunnel while this is set.');
-  }
-  if (e.AUTH_MODE !== 'none' && !e.PUBLIC_URL) {
-    warnings.push('PUBLIC_URL is not set, so no tunnel URL is known yet.');
+    if (url.protocol !== 'https:' && !isLoopback(url.hostname)) {
+      warnings.push(
+        `PUBLIC_URL is not https, so browsers will treat it as an insecure context. Passkeys, service workers and web push will not work over "${url.protocol}//".`,
+      );
+    }
   }
 
   if (problems.length) throw new ConfigError(problems);
 
-  const dbPath = resolve(repoRoot, e.DATABASE_PATH);
+  const extraHosts = (e.ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean)
+    .map((h) => hostname(h));
+  if (e.PUBLIC_URL) extraHosts.push(hostname(new URL(e.PUBLIC_URL).host));
 
   return {
     nodeEnv: e.NODE_ENV,
     host: e.HOST,
     port: e.PORT,
     logLevel: e.LOG_LEVEL,
-    databasePath: dbPath,
-    authMode: e.AUTH_MODE,
-    sessionSecret: e.SESSION_SECRET ?? null,
-    allowedEmail: e.ALLOWED_EMAIL ?? null,
+    databasePath: resolve(repoRoot, e.DATABASE_PATH),
     publicUrl: e.PUBLIC_URL ? e.PUBLIC_URL.replace(/\/+$/, '') : null,
-    google:
-      e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET
-        ? { clientId: e.GOOGLE_CLIENT_ID, clientSecret: e.GOOGLE_CLIENT_SECRET }
-        : null,
+    allowedHosts: [...new Set(extraHosts)],
     boundToLoopback: loopback,
     version: readVersion(),
     warnings,

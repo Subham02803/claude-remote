@@ -1,14 +1,7 @@
-import { isIP } from 'node:net';
 import type { Health, HealthDetail } from '@claude-remote/shared';
 import type { FastifyInstance } from 'fastify';
 import type { Config } from '../config.js';
 import type { Db } from '../db/index.js';
-
-function fromLoopback(ip: string): boolean {
-  const bare = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
-  if (bare === '::1' || bare === 'localhost') return true;
-  return isIP(bare) === 4 && bare.startsWith('127.');
-}
 
 export function registerHealthRoutes(
   app: FastifyInstance,
@@ -18,8 +11,7 @@ export function registerHealthRoutes(
 ): void {
   const uptime = () => Math.round((Date.now() - startedAt) / 1000);
 
-  // Public. Says the process is alive and nothing more: once a tunnel is open,
-  // this endpoint is on the internet.
+  // Liveness. Says the process is alive and nothing more.
   app.get(
     '/api/health',
     async (): Promise<Health> => ({
@@ -30,26 +22,23 @@ export function registerHealthRoutes(
     }),
   );
 
-  // Diagnostics. Loopback-only for now; moves behind authentication in step 1,
-  // at which point the loopback check becomes a fallback rather than the gate.
-  app.get('/api/health/detail', async (req, reply) => {
-    if (!fromLoopback(req.ip)) {
-      return reply.code(403).send({
-        error: 'forbidden',
-        message: 'Diagnostics are only served to this machine.',
-      });
-    }
-    const body: HealthDetail = {
+  // Diagnostics. Reachable by anything that reaches the server at all, which is
+  // this machine and the tailnet — deliberately, since there is no sign-in to
+  // put it behind. Note that a loopback check would not narrow it: under
+  // `tailscale serve` every request arrives from 127.0.0.1, so such a check
+  // would pass for the whole tailnet while reading as though it did not.
+  // Keep genuinely sensitive values out of this response instead.
+  app.get('/api/health/detail', async (): Promise<HealthDetail> => {
+    return {
       ok: true,
       name: 'claude-remote',
       version: config.version,
       uptimeSeconds: uptime(),
-      authMode: config.authMode,
       publicUrl: config.publicUrl,
       bind: { host: config.host, port: config.port },
-      database: { path: config.databasePath, migrationsApplied: db.migrationsApplied },
+      allowedHosts: config.allowedHosts,
+      database: { migrationsApplied: db.migrationsApplied },
       warnings: config.warnings,
     };
-    return body;
   });
 }
