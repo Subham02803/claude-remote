@@ -1,0 +1,1180 @@
+<meta charset="utf-8">
+<title>Claude Remote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #08090C;
+    --app: #0E1014;
+    --term: #0A0B0E;
+    --surface: #16191F;
+    --raised: #1C2027;
+    --raised2: #23272F;
+    --line: #2A2F38;
+    --line-strong: #39404B;
+    --ink: #E8EAED;
+    --ink-2: #C9D0DA;
+    --ink-3: #A8AFBA;
+    --ink-4: #6E7681;
+    --need: #F2A93B;
+    --need-ink: #F5C889;
+    --need-dim: #B08A52;
+    --work: #46B8CC;
+    --done: #4FBF87;
+    --fail: #E5675E;
+    --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; font-size: 14px; }
+  :focus-visible { outline: 2px solid var(--need); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+  .mono { font-family: var(--mono); }
+  .num { font-variant-numeric: tabular-nums; }
+  .row { display: flex; align-items: center; }
+  .col { display: flex; flex-direction: column; }
+  .spacer { flex-grow: 1; }
+  .hr { height: 1px; background: var(--line); flex-shrink: 0; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  h1, h2 { margin: 0; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+  p { margin: 0; }
+  .safe { height: 50px; flex-shrink: 0; }
+
+  /* page chrome */
+  .chrome { display: flex; align-items: center; gap: 16px; padding: 14px 22px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .chrome__name { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.04em; color: var(--ink-3); }
+  .chrome__note { font-size: 12.5px; color: var(--ink-4); }
+  .seg { display: flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+  .seg button { font: inherit; font-size: 12.5px; padding: 7px 15px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-4); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--raised2); color: var(--ink); }
+  .ghost-btn { font: inherit; font-size: 12.5px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--ink-3); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+  .ghost-btn:hover { border-color: var(--line-strong); color: var(--ink); }
+  .stage { padding: 30px 22px 60px; overflow-x: auto; }
+  .stage__inner { display: flex; justify-content: center; min-width: min-content; }
+  .desk-frame { width: 1360px; height: 856px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--app); box-shadow: 0 30px 80px -30px rgba(0,0,0,0.9); }
+  .phone-frame { width: 414px; height: 868px; padding: 12px; border-radius: 46px; background: #15171C; border: 1px solid var(--line-strong); box-shadow: 0 30px 80px -30px rgba(0,0,0,0.9); }
+  .phone-frame > .app { border-radius: 34px; }
+  .app { width: 100%; height: 100%; background: var(--app); position: relative; overflow: hidden; }
+
+  /* atoms */
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 5px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+  .pill--need { background: rgba(242,169,59,0.14); color: var(--need); }
+  .pill--work { background: rgba(70,184,204,0.12); color: var(--work); }
+  .pill--done { background: rgba(79,191,135,0.12); color: var(--done); }
+  .pill--fail { background: rgba(229,103,94,0.12); color: var(--fail); }
+  .pill--stop { background: rgba(110,118,129,0.16); color: var(--ink-3); }
+  .dot { width: 6px; height: 6px; border-radius: 999px; display: block; flex-shrink: 0; }
+  .dot--pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
+  .cursor { display: inline-block; width: 8px; height: 15px; background: var(--need); vertical-align: -3px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 0%,49% { opacity: 1 } 50%,100% { opacity: 0 } }
+
+  .btn { font: inherit; border: 0; border-radius: 7px; background: var(--need); color: #12141A; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn:disabled { background: var(--raised2); color: var(--ink-4); cursor: not-allowed; }
+  .btn--line { background: transparent; border: 1px solid var(--line-strong); color: var(--ink-3); font-weight: 500; }
+  .btn--line:hover:not(:disabled) { border-color: var(--ink-4); color: var(--ink); }
+  .btn--deny { background: transparent; border: 1px solid rgba(229,103,94,0.45); color: var(--fail); font-weight: 500; }
+  .btn--deny:hover { background: rgba(229,103,94,0.09); }
+  .btn--sm { padding: 9px 16px; font-size: 13px; }
+  .btn--md { padding: 11px 20px; font-size: 13.5px; }
+  .btn--tall { height: 56px; font-size: 16px; width: 100%; }
+  .btn--tall-line { height: 48px; font-size: 14px; width: 100%; }
+  .chip { font: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink-3); cursor: pointer; white-space: nowrap; }
+  .chip:hover { border-color: var(--line-strong); color: var(--ink); }
+  .chip[aria-pressed="true"] { background: var(--raised2); border-color: var(--line-strong); color: var(--ink); }
+  .icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink-3); flex-shrink: 0; }
+  .icon-btn:hover { border-color: var(--line-strong); color: var(--ink); }
+  .icon-btn--plain { border-color: transparent; }
+  .icon-btn--danger { border-color: rgba(229,103,94,0.4); color: var(--fail); }
+  .icon-btn--lg { width: 44px; height: 44px; border-radius: 11px; }
+  .link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--need); cursor: pointer; }
+  .link-btn--quiet { color: var(--ink-4); font-weight: 400; }
+  .link-btn--quiet:hover { color: var(--ink-3); }
+  .toggle { width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); padding: 2px; display: flex; flex-shrink: 0; }
+  .toggle[data-on="true"] { background: var(--need); justify-content: flex-end; }
+  .toggle span { width: 16px; height: 16px; border-radius: 999px; background: #12141A; display: block; }
+
+  .topbar { height: 52px; flex-shrink: 0; background: #12141A; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 0 18px; }
+  .brand { display: flex; align-items: center; gap: 9px; cursor: pointer; background: none; border: 0; padding: 0; color: var(--ink); }
+  .brand__word { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .brand__word i { color: var(--ink-4); font-style: normal; }
+  .host { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+
+  .banner { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid; animation: rise 0.24s ease-out; }
+  .banner--need { background: rgba(242,169,59,0.09); border-color: rgba(242,169,59,0.28); }
+  .banner--calm { background: rgba(79,191,135,0.07); border-color: rgba(79,191,135,0.24); }
+  @keyframes rise { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: none } }
+  .where { font-family: var(--mono); font-size: 11.5px; color: var(--need-dim); }
+  .where b { color: var(--need-ink); font-weight: 500; }
+
+  /* project rail */
+  .rail { width: 268px; flex-shrink: 0; background: #12141A; border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px; gap: 4px; overflow-y: auto; }
+  .proj { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-radius: 6px; border: 0; background: transparent; color: var(--ink-3); font-family: var(--mono); font-size: 12.5px; cursor: pointer; text-align: left; width: 100%; }
+  .proj:hover { background: rgba(255,255,255,0.03); }
+  .proj[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+  .proj__name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; }
+  .proj__count { font-size: 10.5px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+  .sess-link { display: flex; align-items: center; gap: 8px; padding: 6px 9px 6px 30px; border-radius: 6px; border: 0; background: transparent; color: var(--ink-4); font-size: 12px; cursor: pointer; text-align: left; width: 100%; }
+  .sess-link:hover { background: rgba(255,255,255,0.03); color: var(--ink-3); }
+  .sess-link[aria-current="true"] { background: var(--raised); color: var(--ink); }
+  .sess-link__name { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .caretx { width: 12px; flex-shrink: 0; color: var(--ink-4); display: inline-flex; }
+
+  /* session cards */
+  .group__head { display: flex; align-items: center; gap: 10px; padding-bottom: 2px; }
+  .group__name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+  .group__path { font-family: var(--mono); font-size: 11px; color: var(--ink-4); }
+  .card { display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-align: left; padding: 0; font: inherit; color: inherit; cursor: pointer; width: 100%; }
+  .card:hover { border-color: var(--line-strong); }
+  .card--need { background: #191B21; border-color: rgba(242,169,59,0.35); }
+  .card__rail { width: 3px; flex-shrink: 0; }
+  .card__body { flex-grow: 1; min-width: 0; padding: 13px 15px; display: flex; flex-direction: column; gap: 8px; }
+  .card__head { display: flex; align-items: center; gap: 10px; }
+  .card__title { font-size: 14px; font-weight: 500; }
+  .card__meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+  .card__line { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); min-width: 0; }
+
+  /* tabs */
+  .tabs { display: flex; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--line); flex-shrink: 0; background: #101216; overflow-x: auto; }
+  .tab { font: inherit; font-size: 13px; padding: 12px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink-4); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .tab:hover { color: var(--ink-3); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--need); }
+  .tab__badge { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 999px; background: var(--raised2); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .tab__badge--need { background: rgba(242,169,59,0.18); color: var(--need); }
+  .tab__badge--work { background: rgba(70,184,204,0.16); color: var(--work); }
+
+  /* terminal */
+  .term { flex-grow: 1; min-height: 0; overflow-y: auto; background: var(--term); font-family: var(--mono); font-size: 12.5px; line-height: 1.8; padding: 16px 20px 20px; }
+  .term__hello { color: var(--ink-4); }
+  .term__box { border: 1px solid var(--line-strong); border-radius: 6px; padding: 8px 12px; margin: 8px 0 16px; color: var(--ink); display: flex; gap: 10px; }
+  .term__box i { color: var(--need); font-style: normal; }
+  .term__say { color: var(--ink-2); display: flex; gap: 10px; margin: 10px 0; }
+  .term__say b { color: var(--ink-4); font-weight: 400; flex-shrink: 0; }
+  .term__tool { display: flex; gap: 10px; margin-top: 10px; }
+  .term__tool b { color: var(--ink-4); font-weight: 400; flex-shrink: 0; }
+  .term__name { color: var(--ink); }
+  .term__arg { color: var(--work); }
+  .term__out { padding-left: 26px; color: var(--ink-4); }
+  .term__out i { font-style: normal; color: var(--ink-4); }
+  .term__ok { color: var(--done); }
+  .term__warn { color: var(--need); }
+  .term__err { color: var(--fail); }
+  .term__wait { display: flex; gap: 10px; margin: 14px 0; padding: 10px 12px; border: 1px solid rgba(242,169,59,0.35); border-radius: 6px; background: rgba(242,169,59,0.07); color: var(--need-ink); align-items: center; }
+  .term__task { color: var(--ink); }
+
+  /* prompt input */
+  .promptbar { flex-shrink: 0; border-top: 1px solid var(--line); background: #101216; padding: 12px 20px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .promptbox { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--term); padding: 10px 12px; }
+  .promptbox > i { color: var(--need); font-style: normal; font-family: var(--mono); font-size: 13px; line-height: 1.6; }
+  textarea.tinput { font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--ink); background: transparent; border: 0; resize: none; width: 100%; padding: 0; }
+  textarea.tinput::placeholder { color: var(--ink-4); }
+  textarea.tinput:focus { outline: none; }
+  .queue { display: flex; flex-direction: column; gap: 5px; }
+  .queue__row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+  .queue__n { font-family: var(--mono); font-size: 10.5px; color: var(--need); width: 14px; flex-shrink: 0; }
+  .queue__text { font-size: 12.5px; color: var(--ink-2); flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue__x { width: 24px; height: 24px; border-radius: 6px; border: 0; background: transparent; color: var(--ink-4); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .queue__x:hover { background: var(--raised2); color: var(--ink); }
+
+  /* agents */
+  .agent { display: flex; align-items: center; gap: 11px; padding: 11px 13px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+  .agent--sub { margin-left: 26px; }
+  .agent__name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+  .agent__doing { font-family: var(--mono); font-size: 11.5px; color: var(--ink-4); }
+  .agent__thread { position: absolute; left: 12px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+
+  /* misc */
+  .ask { background: var(--term); border: 1px solid var(--line-strong); border-radius: 8px; padding: 13px 14px; display: flex; flex-direction: column; gap: 9px; }
+  .ask__cmd { font-family: var(--mono); font-size: 14px; color: var(--ink); line-height: 1.5; word-break: break-word; }
+  .ask__why { font-size: 13px; color: var(--ink-3); line-height: 1.55; }
+  .empty { border: 1px dashed var(--line); border-radius: 11px; padding: 34px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+  .scrim { position: absolute; inset: 0; background: rgba(8,9,12,0.68); display: flex; animation: fade 0.18s ease-out; }
+  @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+  .modal { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; padding: 22px; display: flex; flex-direction: column; gap: 16px; animation: pop 0.2s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+  .toast { position: absolute; background: var(--raised2); border: 1px solid var(--line-strong); border-radius: 999px; padding: 11px 20px; display: flex; align-items: center; gap: 10px; font-size: 13px; animation: pop 0.2s ease-out; z-index: 5; }
+  .code-row { display: flex; gap: 9px; }
+  .code-box { width: 50px; height: 58px; border-radius: 8px; background: var(--app); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 22px; }
+  .code-box[data-state="filled"] { border-color: var(--line-strong); }
+  .code-box[data-state="active"] { border-color: var(--need); }
+  .code-box[data-state="active"]::after { content: ''; width: 2px; height: 24px; background: var(--need); animation: blink 1.1s steps(1) infinite; }
+  .keypad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .key { height: 54px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-family: var(--mono); font-size: 21px; color: var(--ink); cursor: pointer; }
+  .key--ghost { background: transparent; border-color: transparent; color: var(--ink-3); }
+  .grid-bg { position: absolute; inset: 0; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 64px 64px; opacity: 0.26; pointer-events: none; }
+  .glow { position: absolute; top: -180px; left: -120px; width: 720px; height: 720px; border-radius: 999px; background: radial-gradient(circle, rgba(242,169,59,0.10) 0%, rgba(242,169,59,0) 68%); pointer-events: none; }
+</style>
+
+<header class="chrome">
+  <span class="chrome__name">claude-remote &mdash; clickable prototype</span>
+  <span class="chrome__note">Both views start locked. Touch ID, then the 6-digit code.</span>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="Which view">
+    <button data-act="view" data-arg="desktop" aria-pressed="true">Desktop browser</button>
+    <button data-act="view" data-arg="phone" aria-pressed="false">Phone</button>
+  </div>
+  <button class="ghost-btn" data-act="reset">Start over</button>
+</header>
+
+<div class="stage"><div class="stage__inner" id="viewport"></div></div>
+<script>
+(function () {
+  'use strict';
+  var CODE = '419274';
+
+  function seed() {
+    return [
+      {
+        id: 'p1', name: 'web-dashboard', path: '~/projects/web-dashboard',
+        sessions: [
+          {
+            id: 's1', name: 'Session list endpoint', status: 'waiting', elapsed: '12m 04s',
+            startedAt: '12:41', startedFrom: 'your phone', blockedFor: '2m 14s',
+            ask: {
+              cwd: '~/projects/web-dashboard',
+              cmd: 'rm -rf node_modules && pnpm install',
+              why: 'The lockfile changed after I edited package.json — a clean reinstall avoids a stale dependency tree.',
+              touches: ['deletes node_modules/', 'network: the package registry', 'nothing outside this folder']
+            },
+            queue: ['run the tests once install finishes'],
+            agents: [
+              { name: 'main', sub: false, status: 'blocked', elapsed: '12m 04s', doing: 'waiting on your approval' },
+              { name: 'Explore', sub: true, status: 'working', elapsed: '1m 12s', doing: 'how reconnects are handled today · 8 files read' },
+              { name: 'general-purpose', sub: true, status: 'working', elapsed: '0m 41s', doing: 'writing tests/sessions.spec.ts' },
+              { name: 'Explore', sub: true, status: 'done', elapsed: '2m 03s', doing: 'mapped the existing session model' }
+            ],
+            files: [
+              { path: 'src/server/sessions.ts', add: '+34', del: '-6' },
+              { path: 'src/server/routes/list.ts', add: '+61', del: '' },
+              { path: 'src/shared/types.ts', add: '+12', del: '-2' },
+              { path: 'tests/sessions.spec.ts', add: '+48', del: '' }
+            ],
+            lines: [
+              { k: 'prompt', text: 'Add the endpoint that lists open sessions per project, and keep elapsed time accurate across reconnects.' },
+              { k: 'say', text: "I'll read how sessions are tracked today, then add the list endpoint." },
+              { k: 'tool', name: 'Read', arg: 'src/server/sessions.ts', out: 'Read 142 lines' },
+              { k: 'tool', name: 'Update', arg: 'src/server/sessions.ts', out: 'Updated with 34 additions and 6 removals', ok: true },
+              { k: 'tool', name: 'Bash', arg: 'pnpm test --filter server', out: '34 passed in 8.2s', ok: true },
+              { k: 'task', name: 'Explore', arg: 'how reconnects are handled today', out: 'Running…' },
+              { k: 'say', text: 'Elapsed time is derived on the client, which drifts after a reconnect. Moving it to a server timestamp so a phone that was offline still shows the truth.' },
+              { k: 'wait', text: 'Needs your approval to run a command' }
+            ]
+          },
+          {
+            id: 's2', name: 'Dark mode tokens', status: 'working', elapsed: '4m 18s',
+            startedAt: '12:49', startedFrom: 'this browser', ask: null, queue: [],
+            agents: [ { name: 'main', sub: false, status: 'working', elapsed: '4m 18s', doing: 'editing tokens.css' } ],
+            files: [ { path: 'src/styles/tokens.css', add: '+58', del: '-12' } ],
+            lines: [
+              { k: 'prompt', text: 'Pull every hard-coded colour out into tokens and add the dark set.' },
+              { k: 'say', text: 'Found 41 hard-coded colours across 12 files. Collapsing them into 9 tokens first, then adding the dark overrides.' },
+              { k: 'tool', name: 'Grep', arg: '#[0-9a-fA-F]{6}', out: '41 matches in 12 files' },
+              { k: 'tool', name: 'Update', arg: 'src/styles/tokens.css', out: 'Updated with 58 additions and 12 removals', ok: true },
+              { k: 'stream', text: 'Replacing the literals in src/components' }
+            ]
+          },
+          {
+            id: 's3', name: 'Scope document', status: 'done', elapsed: '41m ago',
+            startedAt: '11:52', startedFrom: 'this browser', ask: null, queue: [],
+            agents: [ { name: 'main', sub: false, status: 'done', elapsed: '6m 11s', doing: 'finished' } ],
+            files: [ { path: 'docs/scope.md', add: '+284', del: '' } ],
+            lines: [
+              { k: 'prompt', text: 'Write up the scope before we build any of it. Use cases and non-goals, no technical design.' },
+              { k: 'say', text: 'Written to docs/scope.md — fourteen use cases ranked by value, a binding out-of-scope list, and eight open questions at the end.' },
+              { k: 'tool', name: 'Write', arg: 'docs/scope.md', out: 'Wrote 284 lines', ok: true },
+              { k: 'done', text: 'Finished · nothing is waiting on you' }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'p2', name: 'api-gateway', path: '~/work/api-gateway',
+        sessions: [
+          {
+            id: 's4', name: 'Request filter refactor', status: 'working', elapsed: '18m 32s',
+            startedAt: '12:24', startedFrom: 'this browser', ask: null,
+            queue: ['add a benchmark for the new path', 'update the API docs'],
+            agents: [
+              { name: 'main', sub: false, status: 'working', elapsed: '18m 32s', doing: 'coordinating three workers' },
+              { name: 'general-purpose', sub: true, status: 'working', elapsed: '6m 02s', doing: 'rewriting src/filters/query.ts' },
+              { name: 'general-purpose', sub: true, status: 'working', elapsed: '5m 48s', doing: 'rewriting src/filters/range.ts' },
+              { name: 'Explore', sub: true, status: 'working', elapsed: '2m 19s', doing: 'finding every call site · 31 so far' }
+            ],
+            files: [
+              { path: 'src/filters/query.ts', add: '+96', del: '-31' },
+              { path: 'src/filters/range.ts', add: '+64', del: '-22' },
+              { path: 'src/filters/index.ts', add: '+18', del: '-9' }
+            ],
+            lines: [
+              { k: 'prompt', text: 'The filter code has three near-identical branches. Pull them into one path without changing behaviour, and keep the tests green.' },
+              { k: 'say', text: 'The branches differ only in which field they compare and whether the match is exact. Splitting the work across three workers — one per file — so this does not take an hour.' },
+              { k: 'task', name: 'general-purpose', arg: 'rewrite src/filters/query.ts', out: 'Running…' },
+              { k: 'task', name: 'general-purpose', arg: 'rewrite src/filters/range.ts', out: 'Running…' },
+              { k: 'task', name: 'Explore', arg: 'find every call site', out: 'Running… 31 found' },
+              { k: 'stream', text: 'Waiting on the workers, then I will reconcile the three diffs' }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'p3', name: 'data-pipeline', path: '~/work/data-pipeline',
+        sessions: [
+          {
+            id: 's5', name: 'Nightly rollup job', status: 'working', elapsed: '3m 41s',
+            startedAt: '12:38', startedFrom: 'your phone', ask: null,
+            queue: ['backfill last month', 'write the runbook'],
+            agents: [ { name: 'main', sub: false, status: 'working', elapsed: '3m 41s', doing: 'running the twice-run test' } ],
+            files: [ { path: 'jobs/rollup.ts', add: '+140', del: '' } ],
+            lines: [
+              { k: 'prompt', text: 'Add a nightly job that rolls yesterday up into daily totals. Idempotent — running it twice must not double count.' },
+              { k: 'say', text: 'Writing it with an upsert keyed on the day, so a second run overwrites rather than appends.' },
+              { k: 'tool', name: 'Write', arg: 'jobs/rollup.ts', out: 'Wrote 140 lines', ok: true },
+              { k: 'tool', name: 'Bash', arg: 'pnpm test jobs/rollup', out: '34 passed in 2.1s', ok: true },
+              { k: 'stream', text: 'Checking the twice-run case against a real day of data' }
+            ]
+          }
+        ]
+      },
+      {
+        id: 'p4', name: 'infra-scripts', path: '~/projects/infra-scripts',
+        sessions: [
+          {
+            id: 's6', name: 'Shell config migration', status: 'failed', elapsed: '18m ago',
+            startedAt: '12:14', startedFrom: 'your phone', ask: null, queue: [],
+            agents: [ { name: 'main', sub: false, status: 'failed', elapsed: '0m 12s', doing: 'stopped on a missing tool' } ],
+            files: [],
+            lines: [
+              { k: 'prompt', text: 'Move my shell config over to the new dotfile manager.' },
+              { k: 'tool', name: 'Bash', arg: 'which dotmgr', out: 'command not found: dotmgr', err: true },
+              { k: 'say', text: 'The manager is not installed on this machine, so there is nothing to migrate into. Install it and I can pick this up where it stopped — nothing was changed.' },
+              { k: 'err', text: 'Stopped · the tool it needs is missing' }
+            ]
+          }
+        ]
+      },
+      { id: 'p5', name: 'sandbox', path: '~/sandbox', sessions: [] }
+    ];
+  }
+
+  function initial() {
+    return {
+      view: 'desktop', screen: 'login', step: 1, code: '', trusted: true,
+      projects: seed(),
+      scope: 'all',
+      openId: 's1',
+      tab: 'terminal',
+      expanded: { p1: true, p2: false, p3: false, p4: false, p5: false },
+      draft: '', notify: true, toast: null, focus: false,
+      modal: null, newProject: 'p1', newPrompt: '', nextId: 7
+    };
+  }
+
+  var state = initial();
+
+  /* ---------- lookups ---------- */
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function allSessions() {
+    var out = [];
+    state.projects.forEach(function (p) {
+      p.sessions.forEach(function (s) { out.push({ p: p, s: s }); });
+    });
+    return out;
+  }
+  function locate(id) {
+    var hit = null;
+    allSessions().forEach(function (r) { if (r.s.id === id) { hit = r; } });
+    return hit || allSessions()[0];
+  }
+  function projectOf(id) { return locate(id).p; }
+  function openS() { return locate(state.openId).s; }
+  function waiting() { return allSessions().filter(function (r) { return r.s.status === 'waiting'; }); }
+  function countStatus(st) { return allSessions().filter(function (r) { return r.s.status === st; }).length; }
+  function busyAgents(s) { return s.agents.filter(function (a) { return a.status === 'working'; }).length; }
+  function totalBusyAgents() {
+    var n = 0;
+    allSessions().forEach(function (r) { n += busyAgents(r.s); });
+    return n;
+  }
+  function rail(st) {
+    return st === 'waiting' ? 'var(--need)' : st === 'working' ? 'var(--work)'
+      : st === 'done' ? 'var(--done)' : st === 'failed' ? 'var(--fail)' : 'var(--line-strong)';
+  }
+  function pill(st, extra) {
+    var m = {
+      waiting: ['pill--need', 'Waiting on you', true],
+      working: ['pill--work', 'Working', true],
+      done: ['pill--done', 'Done', false],
+      failed: ['pill--fail', 'Failed', false],
+      stopped: ['pill--stop', 'Stopped', false]
+    };
+    var d = m[st] || m.stopped;
+    return '<span class="pill ' + d[0] + '">'
+      + (d[2] ? '<span class="dot dot--pulse" style="background:currentColor"></span>' : '')
+      + d[1] + (extra ? ' <span class="num">' + esc(extra) + '</span>' : '') + '</span>';
+  }
+
+  var I = {
+    mark: '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--need)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="3.2" width="16.4" height="13.6" rx="3"></rect><path d="M6.4 8.2 8.8 10.2 6.4 12.2"></path><path d="M10.8 12.6h3"></path></svg>',
+    markBig: '<svg width="28" height="28" viewBox="0 0 20 20" fill="none" stroke="var(--need)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="3.2" width="16.4" height="13.6" rx="3"></rect><path d="M6.4 8.2 8.8 10.2 6.4 12.2"></path><path d="M10.8 12.6h3"></path></svg>',
+    warn: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="var(--need)" stroke-width="1.6" stroke-linecap="round"><path d="M8 2.6 14.4 13.4H1.6L8 2.6Z"></path><path d="M8 6.6v3"></path><path d="M8 11.4h.01"></path></svg>',
+    check: '<svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="var(--done)" stroke-width="1.8" stroke-linecap="round"><path d="M3.6 9.4 7 12.8l7.4-7.4"></path></svg>',
+    lock: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="7" width="10" height="7" rx="1.6"></rect><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"></path></svg>',
+    plus: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M8 3.2v9.6M3.2 8h9.6"></path></svg>',
+    back: '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9.6 3.6 5.2 8l4.4 4.4"></path></svg>',
+    stop: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1.2"></rect></svg>',
+    close: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"></path></svg>',
+    touch: '<svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 11.4c0-3.6 2.7-6.4 6-6.4s6 2.8 6 6.4"></path><path d="M6.6 12.4c0-2.1 1.5-3.6 3.4-3.6s3.4 1.5 3.4 3.6"></path><path d="M10 11.6v3.8"></path></svg>',
+    bell: '<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="var(--need)" stroke-width="1.6" stroke-linecap="round"><path d="M9 2.6a4.4 4.4 0 0 1 4.4 4.4c0 3.4 1.2 4.6 1.2 4.6H3.4s1.2-1.2 1.2-4.6A4.4 4.4 0 0 1 9 2.6Z"></path><path d="M7.4 14.2a1.7 1.7 0 0 0 3.2 0"></path></svg>',
+    send: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h11"></path><path d="M9.4 4.2 14.6 9l-5.2 4.8"></path></svg>',
+    mic: '<svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7.6" y="2.6" width="4.8" height="9" rx="2.4"></rect><path d="M4.6 9.4a5.4 5.4 0 0 0 10.8 0"></path><path d="M10 14.8v2.6"></path></svg>',
+    bksp: '<svg width="20" height="20" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 5h10a1.6 1.6 0 0 1 1.6 1.6v8.8A1.6 1.6 0 0 1 18 17H8L2.6 11 8 5Z"></path><path d="M11.4 8.6l4.2 4.8M15.6 8.6l-4.2 4.8"></path></svg>',
+    chev: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 2.8 7.6 6 4 9.2"></path></svg>',
+    chevD: '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2.8 4 6 7.6 9.2 4"></path></svg>',
+    x: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"></path></svg>'
+  };
+
+  /* ---------- shared ---------- */
+
+  function topbar(phone) {
+    if (phone) {
+      return '<div class="topbar" style="padding:0 14px">'
+        + '<button class="brand" data-act="home">' + I.mark + '<span class="brand__word">claude<i>·</i>remote</span></button>'
+        + '<span class="spacer"></span>'
+        + '<span class="host"><span class="dot" style="background:var(--done)"></span>home-mac</span>'
+        + '<button class="icon-btn" data-act="lock" title="Lock all access">' + I.lock + '</button></div>';
+    }
+    return '<div class="topbar">'
+      + '<button class="brand" data-act="home">' + I.mark + '<span class="brand__word">claude<i>·</i>remote</span></button>'
+      + '<span style="width:1px;height:20px;background:var(--line)"></span>'
+      + '<span class="host"><span class="dot" style="background:var(--done)"></span>home-mac'
+      + '<span style="color:var(--ink-4)">' + totalBusyAgents() + ' agents busy</span></span>'
+      + '<span class="spacer"></span>'
+      + '<button class="ghost-btn" data-act="lock">' + I.lock + ' Lock all access</button>'
+      + '<span class="ghost-btn" style="cursor:default">2 devices</span></div>';
+  }
+
+  function banner(phone) {
+    var w = waiting();
+    if (w.length) {
+      var r = w[0];
+      var more = w.length > 1 ? ' <span style="color:var(--need-dim)">+' + (w.length - 1) + ' more</span>' : '';
+      return '<div class="banner banner--need">' + I.warn
+        + '<span class="col" style="gap:2px;min-width:0">'
+        + '<span style="font-size:13.5px;font-weight:500;color:var(--need-ink)">Claude is waiting on your answer' + more + '</span>'
+        + '<span class="where"><b>' + esc(r.p.name) + '</b> / <b>' + esc(r.s.name) + '</b> · blocked ' + esc(r.s.blockedFor || r.s.elapsed) + '</span>'
+        + '</span><span class="spacer"></span>'
+        + '<button class="link-btn" data-act="jump" data-arg="' + r.s.id + '">' + (phone ? 'Decide' : 'Go there') + ' &rarr;</button></div>';
+    }
+    return '<div class="banner banner--calm">' + I.check
+      + '<span style="font-size:13.5px;font-weight:500;color:#8FD9B4">Nothing is waiting on you</span>'
+      + '<span class="mono num" style="font-size:11.5px;color:#6E9C82">' + countStatus('working') + ' sessions · '
+      + totalBusyAgents() + ' agents running</span></div>';
+  }
+
+  function toast() {
+    if (!state.toast) { return ''; }
+    var pos = state.view === 'phone'
+      ? 'left:18px;right:18px;bottom:26px;border-radius:12px;justify-content:center'
+      : 'left:50%;bottom:26px;transform:translateX(-50%)';
+    return '<div class="toast" style="' + pos + '"><span class="dot" style="background:var(--done)"></span>' + esc(state.toast) + '</div>';
+  }
+
+  function codeRow() {
+    var out = '<div class="code-row">';
+    for (var i = 0; i < 6; i++) {
+      var st = i < state.code.length ? 'filled' : (i === state.code.length ? 'active' : 'empty');
+      out += '<div class="code-box" data-state="' + st + '">' + (state.code.charAt(i) || '') + '</div>';
+    }
+    return out + '</div>';
+  }
+
+  /* ---------- terminal ---------- */
+
+  function terminal(s, phone) {
+    var out = '<div class="term" id="term">'
+      + '<div class="term__hello">home-mac · ' + esc(projectOf(s.id).path) + ' · session ' + esc(s.id) + '</div>';
+    s.lines.forEach(function (l) {
+      if (l.k === 'prompt') {
+        out += '<div class="term__box"><i>&gt;</i><span>' + esc(l.text) + '</span></div>';
+      } else if (l.k === 'say') {
+        out += '<div class="term__say"><b>&#9679;</b><span>' + esc(l.text) + '</span></div>';
+      } else if (l.k === 'tool' || l.k === 'task') {
+        out += '<div class="term__tool"><b>&#9679;</b><span class="term__name">' + esc(l.name)
+          + '(<span class="term__arg">' + esc(l.arg) + '</span>)</span></div>'
+          + '<div class="term__out">&#9096;&nbsp; <span class="' + (l.err ? 'term__err' : l.ok ? 'term__ok' : '') + '">' + esc(l.out) + '</span></div>';
+      } else if (l.k === 'stream') {
+        out += '<div class="term__say"><b>&#9679;</b><span>' + esc(l.text) + '<span class="cursor"></span></span></div>';
+      } else if (l.k === 'wait') {
+        out += '<div class="term__wait">' + I.warn + '<span style="flex-grow:1">' + esc(l.text) + '</span>'
+          + '<button class="link-btn" data-act="tab" data-arg="waiting">Open Waiting for you &rarr;</button></div>';
+      } else if (l.k === 'ok') {
+        out += '<div class="term__say"><b class="term__ok">&#10003;</b><span class="term__ok">' + esc(l.text) + '</span></div>';
+      } else if (l.k === 'done') {
+        out += '<div class="term__say"><b class="term__ok">&#10003;</b><span class="term__ok">' + esc(l.text) + '</span></div>';
+      } else if (l.k === 'err') {
+        out += '<div class="term__say"><b class="term__err">&#10007;</b><span class="term__err">' + esc(l.text) + '</span></div>';
+      } else if (l.k === 'queued') {
+        out += '<div class="term__box" style="border-color:var(--need-dim);opacity:0.75"><i>&gt;</i><span>' + esc(l.text)
+          + ' <span style="color:var(--need-dim)">— queued</span></span></div>';
+      }
+    });
+    out += '</div>';
+
+    var busy = s.status === 'working' || s.status === 'waiting';
+    var qrows = '';
+    s.queue.forEach(function (q, i) {
+      qrows += '<div class="queue__row"><span class="queue__n num">' + (i + 1) + '</span>'
+        + '<span class="queue__text">' + esc(q) + '</span>'
+        + '<button class="queue__x" data-act="unqueue" data-arg="' + i + '" title="Remove">' + I.x + '</button></div>';
+    });
+
+    var hint = busy
+      ? 'Claude is mid-run — this goes in the queue and starts when the current step finishes.'
+      : 'Nothing running — this starts immediately.';
+
+    return out
+      + '<div class="promptbar">'
+      + (s.queue.length
+        ? '<div class="col" style="gap:6px"><span class="label">Queued after this &middot; ' + s.queue.length + '</span><div class="queue">' + qrows + '</div></div>'
+        : '')
+      + '<div class="promptbox"><i>&gt;</i>'
+      + '<textarea class="tinput" id="composer" rows="' + (phone ? '1' : '2') + '" placeholder="' + (busy ? 'Add another prompt to this session…' : 'Tell Claude what to do next…') + '">' + esc(state.draft) + '</textarea>'
+      + '</div>'
+      + '<div class="row" style="gap:10px;flex-wrap:wrap">'
+      + '<span class="mono" style="font-size:10.5px;color:var(--ink-4)">' + esc(hint) + '</span>'
+      + '<span class="spacer"></span>'
+      + (phone ? '' : '<span class="mono" style="font-size:10.5px;color:var(--ink-4)">&#8984;&#9166; add</span>')
+      + '<button class="btn ' + (phone ? '' : 'btn--sm') + '" data-act="send" id="sendBtn" style="' + (phone ? 'height:40px;padding:0 16px;font-size:13px' : '') + '"'
+      + (state.draft.trim() ? '' : ' disabled') + '>' + (busy ? 'Add to queue' : 'Run it') + '</button>'
+      + '</div></div>';
+  }
+
+  /* ---------- waiting tab ---------- */
+
+  function waitingTab(s, phone) {
+    if (!s.ask) {
+      return '<div style="flex-grow:1;overflow-y:auto;padding:' + (phone ? '18px' : '24px') + '">'
+        + '<div class="empty">' + I.check
+        + '<span style="font-size:14px;color:var(--ink-3)">Nothing waiting on you here</span>'
+        + '<span style="font-size:12.5px;color:var(--ink-4);max-width:44ch;line-height:1.5">If this session gets blocked, one request appears here, this tab turns amber, and your phone buzzes. Only ever one at a time.</span>'
+        + '</div></div>';
+    }
+    var touches = '';
+    s.ask.touches.forEach(function (t, i) {
+      touches += '<div class="row" style="gap:9px"><span class="dot" style="width:5px;height:5px;background:'
+        + (i === 0 ? 'var(--fail)' : 'var(--ink-4)') + '"></span>'
+        + '<span class="mono" style="font-size:11.5px;color:var(--ink-3)">' + esc(t) + '</span></div>';
+    });
+    var buttons = phone
+      ? '<div class="col" style="gap:9px">'
+        + '<button class="btn btn--tall" data-act="approve" data-arg="' + s.id + '">Approve</button>'
+        + '<button class="btn btn--line btn--tall-line" data-act="approveAll" data-arg="' + s.id + '">Approve every command this session</button>'
+        + '<button class="btn btn--deny btn--tall-line" data-act="deny" data-arg="' + s.id + '">Deny</button></div>'
+      : '<div class="row" style="gap:9px;flex-wrap:wrap">'
+        + '<button class="btn btn--md" data-act="approve" data-arg="' + s.id + '">Approve</button>'
+        + '<button class="btn btn--line btn--sm" data-act="approveAll" data-arg="' + s.id + '">Approve every command this session</button>'
+        + '<button class="btn btn--deny btn--sm" data-act="deny" data-arg="' + s.id + '">Deny</button></div>';
+
+    return '<div style="flex-grow:1;overflow-y:auto;padding:' + (phone ? '16px 18px 20px' : '22px 24px') + ';display:flex;flex-direction:column;gap:14px;max-width:' + (phone ? 'none' : '760px') + '">'
+      + '<div class="row" style="gap:9px;padding:10px 13px;background:rgba(242,169,59,0.09);border:1px solid rgba(242,169,59,0.3);border-radius:9px">'
+      + I.warn + '<span class="label" style="color:var(--need)">Waiting on you</span><span class="spacer"></span>'
+      + '<span class="mono num" style="font-size:11.5px;color:var(--need-dim)">blocked ' + esc(s.blockedFor || s.elapsed) + '</span></div>'
+      + '<h2 style="font-size:' + (phone ? '22' : '24') + 'px">Run a command?</h2>'
+      + '<div class="ask"><span class="label">in ' + esc(s.ask.cwd) + '</span>'
+      + '<span class="ask__cmd">' + esc(s.ask.cmd) + '</span></div>'
+      + '<p class="ask__why">&ldquo;' + esc(s.ask.why) + '&rdquo;</p>'
+      + '<div class="col" style="gap:9px"><span class="label">What it touches</span>' + touches + '</div>'
+      + (phone ? '<span class="spacer" style="min-height:10px"></span>' : '')
+      + buttons
+      + '<span class="mono" style="font-size:10.5px;color:var(--ink-4)">Denying is safe — Claude picks another route and keeps going.</span>'
+      + '</div>';
+  }
+
+  /* ---------- agents tab ---------- */
+
+  function agentsTab(s, phone) {
+    var rows = '';
+    s.agents.forEach(function (a) {
+      var c = a.status === 'working' ? 'var(--work)' : a.status === 'blocked' ? 'var(--need)'
+        : a.status === 'done' ? 'var(--done)' : 'var(--fail)';
+      rows += '<div class="agent' + (a.sub ? ' agent--sub' : '') + '">'
+        + '<span class="dot' + (a.status === 'working' || a.status === 'blocked' ? ' dot--pulse' : '') + '" style="background:' + c + '"></span>'
+        + '<span class="col" style="gap:3px;min-width:0;flex-grow:1">'
+        + '<span class="row" style="gap:8px"><span class="agent__name">' + esc(a.name) + '</span>'
+        + (a.sub ? '<span class="label" style="font-size:9px">subagent</span>' : '<span class="label" style="font-size:9px">session</span>')
+        + '</span>'
+        + '<span class="agent__doing truncate">' + esc(a.doing) + '</span></span>'
+        + '<span class="mono num" style="font-size:11px;color:' + c + '">' + esc(a.elapsed) + '</span>'
+        + '</div>';
+    });
+    var busy = busyAgents(s);
+    return '<div style="flex-grow:1;overflow-y:auto;padding:' + (phone ? '16px 18px' : '22px 24px') + ';display:flex;flex-direction:column;gap:14px">'
+      + '<div class="row" style="gap:10px"><span class="label">Who is working on this session</span><span class="spacer"></span>'
+      + '<span class="mono num" style="font-size:11.5px;color:' + (busy ? 'var(--work)' : 'var(--ink-4)') + '">' + busy + ' of ' + s.agents.length + ' active</span></div>'
+      + '<div class="col" style="gap:6px;max-width:' + (phone ? 'none' : '720px') + '">' + rows + '</div>'
+      + '<span class="mono" style="font-size:10.5px;color:var(--ink-4);line-height:1.6;max-width:60ch">Subagents run in parallel and report back to the session. Stopping the session stops all of them.</span>'
+      + '</div>';
+  }
+
+  /* ---------- changes tab ---------- */
+
+  function changesTab(s, phone) {
+    if (!s.files.length) {
+      return '<div style="flex-grow:1;padding:24px"><div class="empty">'
+        + '<span style="font-size:14px;color:var(--ink-3)">Nothing changed in this session</span>'
+        + '<span style="font-size:12.5px;color:var(--ink-4)">No files were written.</span></div></div>';
+    }
+    var rows = '';
+    s.files.forEach(function (f) {
+      rows += '<div class="row" style="gap:10px;padding:9px 12px;background:var(--surface);border:1px solid var(--line);border-radius:7px">'
+        + '<span class="mono truncate" style="font-size:12px;flex-grow:1">' + esc(f.path) + '</span>'
+        + (f.add ? '<span class="mono num" style="font-size:11px;color:var(--done)">' + esc(f.add) + '</span>' : '')
+        + (f.del ? '<span class="mono num" style="font-size:11px;color:var(--fail)">' + esc(f.del) + '</span>' : '')
+        + '</div>';
+    });
+    return '<div style="flex-grow:1;overflow-y:auto;padding:' + (phone ? '16px 18px' : '22px 24px') + ';display:flex;flex-direction:column;gap:12px">'
+      + '<div class="row" style="gap:10px"><span class="label">Files this session touched</span><span class="spacer"></span>'
+      + '<span class="mono num" style="font-size:11.5px;color:var(--ink-4)">' + s.files.length + ' files</span></div>'
+      + '<div class="col" style="gap:5px;max-width:' + (phone ? 'none' : '720px') + '">' + rows + '</div></div>';
+  }
+
+  function tabsBar(s) {
+    var pend = s.ask ? 1 : 0;
+    var busy = busyAgents(s);
+    return '<div class="tabs" role="tablist">'
+      + '<button class="tab" role="tab" aria-selected="' + (state.tab === 'terminal') + '" data-act="tab" data-arg="terminal">Terminal'
+      + (s.queue.length ? '<span class="tab__badge">+' + s.queue.length + ' queued</span>' : '') + '</button>'
+      + '<button class="tab" role="tab" aria-selected="' + (state.tab === 'waiting') + '" data-act="tab" data-arg="waiting">Waiting for you'
+      + (pend ? '<span class="tab__badge tab__badge--need">1</span>' : '') + '</button>'
+      + '<button class="tab" role="tab" aria-selected="' + (state.tab === 'agents') + '" data-act="tab" data-arg="agents">Agents'
+      + (busy ? '<span class="tab__badge tab__badge--work">' + busy + '</span>' : '<span class="tab__badge">' + s.agents.length + '</span>') + '</button>'
+      + '<button class="tab" role="tab" aria-selected="' + (state.tab === 'changes') + '" data-act="tab" data-arg="changes">Changes'
+      + (s.files.length ? '<span class="tab__badge">' + s.files.length + '</span>' : '') + '</button>'
+      + '</div>';
+  }
+
+  function tabBody(s, phone) {
+    if (state.tab === 'waiting') { return waitingTab(s, phone); }
+    if (state.tab === 'agents') { return agentsTab(s, phone); }
+    if (state.tab === 'changes') { return changesTab(s, phone); }
+    return terminal(s, phone);
+  }
+
+  /* ---------- login ---------- */
+
+  function deskLogin() {
+    var right;
+    if (state.step === 1) {
+      right = '<div class="col" style="gap:20px">'
+        + '<div class="col" style="gap:7px"><span class="label">Layer 1 of 2</span>'
+        + '<h2 style="font-size:22px">Prove it\'s you</h2>'
+        + '<p style="font-size:13.5px;line-height:1.55;color:var(--ink-3)">Your passkey lives on this device. Nothing to type, nothing to remember.</p></div>'
+        + '<button class="btn" style="height:50px" data-act="step2">' + I.touch + ' Continue with Touch ID</button>'
+        + '<div class="row" style="gap:10px"><span class="hr" style="flex-grow:1"></span><span style="font-size:11.5px;color:var(--ink-4)">or</span><span class="hr" style="flex-grow:1"></span></div>'
+        + '<button class="btn btn--line" style="height:46px" data-act="step2">Use a hardware security key</button></div>';
+    } else {
+      right = '<div class="col" style="gap:20px">'
+        + '<span class="row" style="gap:9px;padding:7px 11px;background:rgba(79,191,135,0.10);border-radius:6px;align-self:flex-start;font-size:12.5px;color:var(--done)">' + I.check + ' Passkey verified · Touch ID</span>'
+        + '<div class="col" style="gap:7px"><span class="label">Layer 2 of 2</span>'
+        + '<h2 style="font-size:22px">Enter your code</h2>'
+        + '<p style="font-size:13.5px;line-height:1.55;color:var(--ink-3)">Six digits from your authenticator. Type them, or click the boxes to fill the demo code.</p></div>'
+        + '<div data-act="fillDigit" style="cursor:pointer">' + codeRow() + '</div>'
+        + '<button class="row" data-act="trust" style="gap:11px;min-height:44px;background:none;border:0;padding:0;color:inherit;text-align:left;cursor:pointer">'
+        + '<span style="width:19px;height:19px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;'
+        + (state.trusted ? 'background:var(--need)' : 'border:1px solid var(--line-strong)') + '">'
+        + (state.trusted ? '<svg width="12" height="12" viewBox="0 0 18 18" fill="none" stroke="#12141A" stroke-width="2.4" stroke-linecap="round"><path d="M3.6 9.4 7 12.8l7.4-7.4"></path></svg>' : '')
+        + '</span><span class="col" style="gap:1px"><span style="font-size:13.5px">Trust this browser for 30 days</span>'
+        + '<span style="font-size:11.5px;color:var(--ink-4)">so you\'re not doing this in a taxi</span></span></button>'
+        + '<button class="btn" style="height:50px" data-act="unlock"' + (state.code.length === 6 ? '' : ' disabled') + '>Unlock</button>'
+        + '<span class="hr"></span>'
+        + '<span class="row mono" style="gap:8px;font-size:11px;color:var(--ink-4)">' + I.lock + ' one account · you@example.com</span></div>';
+    }
+    return '<div class="app" style="display:flex">'
+      + '<div style="width:756px;flex-shrink:0;position:relative;border-right:1px solid var(--line);padding:56px 64px;display:flex;flex-direction:column;overflow:hidden">'
+      + '<span class="glow"></span><span class="grid-bg"></span>'
+      + '<div class="row" style="gap:11px;position:relative">' + I.markBig
+      + '<span class="mono" style="font-size:16px;font-weight:600">claude<span style="color:var(--ink-4)">·</span>remote</span></div>'
+      + '<span class="spacer"></span>'
+      + '<div class="col" style="gap:18px;position:relative;max-width:540px">'
+      + '<h1 style="font-size:44px;line-height:1.1;letter-spacing:-0.03em">Your machine keeps working while you don\'t.</h1>'
+      + '<p style="font-size:16px;line-height:1.6;color:var(--ink-3);max-width:45ch">Every project, every session, every agent — in a browser. Type into the same terminal you would sit in front of.</p></div>'
+      + '<div class="col" style="gap:13px;margin-top:40px;position:relative">'
+      + '<span class="row" style="gap:12px">' + I.check + '<span style="font-size:14px;color:var(--ink-2)">Unblock a stalled run in one tap</span></span>'
+      + '<span class="row" style="gap:12px">' + I.check + '<span style="font-size:14px;color:var(--ink-2)">Queue more prompts onto a session that is already running</span></span>'
+      + '<span class="row" style="gap:12px">' + I.check + '<span style="font-size:14px;color:var(--ink-2)">See every agent working, across every project</span></span></div>'
+      + '<span class="spacer"></span>'
+      + '<span class="mono" style="font-size:11.5px;color:var(--ink-4);position:relative">two layers · passkey then code &nbsp;|&nbsp; one account only</span></div>'
+      + '<div style="flex-grow:1;display:flex;align-items:center;justify-content:center;padding:36px">'
+      + '<div style="width:390px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:28px">' + right + '</div></div></div>';
+  }
+
+  function phoneLogin() {
+    if (state.step === 1) {
+      return '<div class="app" style="display:flex;flex-direction:column;padding:0 22px">'
+        + '<div class="safe"></div><div style="height:60px"></div>'
+        + '<div class="row" style="gap:11px">' + I.markBig
+        + '<span class="mono" style="font-size:17px;font-weight:600">claude<span style="color:var(--ink-4)">·</span>remote</span></div>'
+        + '<div style="height:30px"></div>'
+        + '<h1 style="font-size:30px;line-height:1.15;letter-spacing:-0.025em">Your machine is still working.</h1>'
+        + '<div style="height:12px"></div>'
+        + '<p style="font-size:15px;line-height:1.6;color:var(--ink-3)">Two layers to get in. Then every project, session and agent is in your hand.</p>'
+        + '<span class="spacer"></span>'
+        + '<button class="btn btn--tall" style="border-radius:12px" data-act="step2">' + I.touch + ' Continue with Touch ID</button>'
+        + '<div style="height:10px"></div>'
+        + '<button class="btn btn--line btn--tall-line" style="border:0;color:var(--ink-3)" data-act="step2">Use a security key instead</button>'
+        + '<div style="height:18px"></div>'
+        + '<div class="row" style="gap:7px;justify-content:center">'
+        + '<span style="width:18px;height:4px;border-radius:999px;background:var(--need)"></span>'
+        + '<span style="width:18px;height:4px;border-radius:999px;background:var(--line)"></span></div>'
+        + '<div style="height:18px"></div>'
+        + '<span class="mono" style="font-size:10.5px;color:var(--ink-4);text-align:center">one account only · you@example.com</span>'
+        + '<div style="height:26px"></div></div>';
+    }
+    var keys = '';
+    ['1','2','3','4','5','6','7','8','9'].forEach(function (d) {
+      keys += '<button class="key" data-act="fillDigit">' + d + '</button>';
+    });
+    keys += '<span class="key key--ghost" style="cursor:default"></span>'
+      + '<button class="key" data-act="fillDigit">0</button>'
+      + '<button class="key key--ghost" data-act="backspace">' + I.bksp + '</button>';
+    return '<div class="app" style="display:flex;flex-direction:column;padding:0 22px">'
+      + '<div class="safe"></div><div style="height:16px"></div>'
+      + '<span class="row" style="gap:9px;padding:8px 12px;background:rgba(79,191,135,0.10);border-radius:8px;align-self:flex-start;font-size:12.5px;color:var(--done)">' + I.check + ' Passkey verified</span>'
+      + '<div style="height:20px"></div><span class="label">Layer 2 of 2</span><div style="height:8px"></div>'
+      + '<h1 style="font-size:24px">Enter your code</h1><div style="height:8px"></div>'
+      + '<p style="font-size:14px;line-height:1.55;color:var(--ink-3)">Six digits from your authenticator.</p>'
+      + '<div style="height:20px"></div>'
+      + '<div style="transform:scale(0.97);transform-origin:left">' + codeRow() + '</div>'
+      + '<span class="spacer"></span>'
+      + '<button class="btn" style="height:54px;border-radius:12px;font-size:16px" data-act="unlock"' + (state.code.length === 6 ? '' : ' disabled') + '>Unlock</button>'
+      + '<div style="height:14px"></div><div class="keypad">' + keys + '</div><div style="height:24px"></div></div>';
+  }
+
+  /* ---------- workspace (projects + sessions) ---------- */
+
+  function railHtml() {
+    var out = '<div class="rail">'
+      + '<span class="label" style="padding:0 9px 6px">Projects</span>'
+      + '<button class="proj" data-act="scope" data-arg="all" aria-pressed="' + (state.scope === 'all') + '">'
+      + '<span class="caretx"></span><span class="proj__name">all projects</span>'
+      + '<span class="proj__count">' + allSessions().length + '</span></button>';
+    state.projects.forEach(function (p) {
+      var open = !!state.expanded[p.id];
+      var w = p.sessions.filter(function (s) { return s.status === 'waiting'; }).length;
+      var busy = p.sessions.filter(function (s) { return s.status === 'working'; }).length;
+      var c = w ? 'var(--need)' : busy ? 'var(--work)' : p.sessions.length ? 'var(--line-strong)' : 'var(--line)';
+      out += '<button class="proj" data-act="toggleProj" data-arg="' + p.id + '" aria-pressed="' + (state.scope === p.id) + '">'
+        + '<span class="caretx">' + (p.sessions.length ? (open ? I.chevD : I.chev) : '') + '</span>'
+        + '<span class="dot" style="width:7px;height:7px;background:' + c + '"></span>'
+        + '<span class="proj__name">' + esc(p.name) + '</span>'
+        + '<span class="proj__count">' + (p.sessions.length || '') + '</span></button>';
+      if (open) {
+        p.sessions.forEach(function (s) {
+          out += '<button class="sess-link" data-act="open" data-arg="' + s.id + '" aria-current="' + (state.screen === 'session' && state.openId === s.id) + '">'
+            + '<span class="dot' + (s.status === 'working' || s.status === 'waiting' ? ' dot--pulse' : '') + '" style="width:5px;height:5px;background:' + rail(s.status) + '"></span>'
+            + '<span class="sess-link__name">' + esc(s.name) + '</span>'
+            + (busyAgents(s) > 1 ? '<span class="mono num" style="font-size:10px;color:var(--work)">' + busyAgents(s) + '&times;</span>' : '')
+            + '</button>';
+        });
+        if (!p.sessions.length) {
+          out += '<span class="sess-link" style="cursor:default;color:var(--ink-4);font-size:11.5px">no sessions yet</span>';
+        }
+      }
+    });
+    out += '<button class="proj" style="border:1px dashed var(--line);margin-top:6px;color:var(--ink-4)">'
+      + '<span class="caretx">' + I.plus + '</span><span class="proj__name">Add a project</span></button>';
+    out += '<span class="spacer"></span>'
+      + '<div style="background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px">'
+      + '<span class="label">This browser</span>'
+      + '<span style="font-size:12.5px">Laptop · Chrome</span>'
+      + '<span class="mono" style="font-size:11px;color:var(--ink-4)">trusted until 12 Sep</span></div></div>';
+    return out;
+  }
+
+  function deskWorkspace() {
+    var groups = '';
+    state.projects.forEach(function (p) {
+      if (state.scope !== 'all' && state.scope !== p.id) { return; }
+      if (!p.sessions.length && state.scope === 'all') { return; }
+      var cards = '';
+      p.sessions.forEach(function (s) {
+        var needs = s.status === 'waiting';
+        cards += '<button class="card' + (needs ? ' card--need' : '') + '" data-act="' + (needs ? 'jump' : 'open') + '" data-arg="' + s.id + '">'
+          + '<div class="card__rail" style="background:' + rail(s.status) + '"></div><div class="card__body">'
+          + '<div class="card__head">'
+          + '<span class="card__title" style="' + (s.status === 'working' || needs ? '' : 'color:var(--ink-3)') + '">' + esc(s.name) + '</span>'
+          + '<span class="spacer"></span>'
+          + (busyAgents(s) > 1 ? '<span class="mono num" style="font-size:11px;color:var(--work)">' + busyAgents(s) + ' agents</span>' : '')
+          + (s.queue.length ? '<span class="mono num" style="font-size:11px;color:var(--need-dim)">+' + s.queue.length + ' queued</span>' : '')
+          + pill(s.status) + '<span class="card__meta">' + esc(s.elapsed) + '</span></div>'
+          + '<div class="card__line"><span class="truncate">'
+          + (needs ? '<span style="color:var(--need)">' + esc(s.ask.cmd) + '</span>' : esc(s.lines[s.lines.length - 1].text || s.lines[s.lines.length - 1].arg || ''))
+          + '</span></div></div></button>';
+      });
+      if (!p.sessions.length) {
+        cards = '<div class="empty" style="padding:22px"><span style="font-size:13px;color:var(--ink-4)">No sessions in this project yet</span></div>';
+      }
+      groups += '<div class="col" style="gap:9px">'
+        + '<div class="group__head"><span class="dot" style="width:7px;height:7px;background:' + (p.sessions.some(function (x) { return x.status === 'waiting'; }) ? 'var(--need)' : 'var(--line-strong)') + '"></span>'
+        + '<span class="group__name">' + esc(p.name) + '</span>'
+        + '<span class="group__path">' + esc(p.path) + '</span>'
+        + '<span class="spacer"></span>'
+        + '<span class="mono num" style="font-size:11px;color:var(--ink-4)">' + p.sessions.length + ' session' + (p.sessions.length === 1 ? '' : 's') + '</span>'
+        + '<button class="link-btn link-btn--quiet" data-act="newIn" data-arg="' + p.id + '">+ new session</button></div>'
+        + '<div class="col" style="gap:8px">' + cards + '</div></div>';
+    });
+
+    return '<div class="app" style="display:flex;flex-direction:column">'
+      + topbar(false) + banner(false)
+      + '<div style="flex-grow:1;display:flex;min-height:0">' + railHtml()
+      + '<div style="flex-grow:1;min-width:0;padding:22px 24px;display:flex;flex-direction:column;gap:18px;overflow-y:auto">'
+      + '<div class="row" style="align-items:flex-end;gap:14px">'
+      + '<div class="col" style="gap:3px"><h1 style="font-size:26px">' + (state.scope === 'all' ? 'Everything running' : esc(projectById(state.scope).name)) + '</h1>'
+      + '<span style="font-size:13px;color:var(--ink-4)">'
+      + allSessions().length + ' sessions across ' + state.projects.filter(function (p) { return p.sessions.length; }).length
+      + ' projects · ' + totalBusyAgents() + ' agents busy</span></div>'
+      + '<span class="spacer"></span>'
+      + '<button class="btn btn--md" data-act="new">' + I.plus + ' New session</button></div>'
+      + groups + '</div></div>'
+      + (state.modal === 'new' ? newModal(false) : '') + toast() + '</div>';
+  }
+
+  function projectById(id) {
+    var hit = state.projects[0];
+    state.projects.forEach(function (p) { if (p.id === id) { hit = p; } });
+    return hit;
+  }
+
+  /* ---------- session ---------- */
+
+  function deskSession() {
+    var r = locate(state.openId);
+    var s = r.s;
+    return '<div class="app" style="display:flex;flex-direction:column">'
+      + topbar(false)
+      + '<div style="flex-grow:1;display:flex;min-height:0">' + railHtml()
+      + '<div style="flex-grow:1;min-width:0;display:flex;flex-direction:column">'
+      + '<div style="flex-shrink:0;padding:12px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px">'
+      + '<button class="icon-btn" data-act="home">' + I.back + '</button>'
+      + '<div class="col" style="gap:3px;min-width:0">'
+      + '<span class="mono" style="font-size:11px;color:var(--ink-4)">'
+      + '<span style="color:var(--ink-3)">' + esc(r.p.name) + '</span> / ' + esc(s.name) + ' · ' + esc(r.p.path) + '</span>'
+      + '<span style="font-size:17px;font-weight:600;letter-spacing:-0.01em">' + esc(s.name) + '</span></div>'
+      + '<span class="spacer"></span>'
+      + pill(s.status, s.elapsed)
+      + (s.status === 'working' || s.status === 'waiting'
+        ? '<button class="btn btn--deny btn--sm" data-act="stop" data-arg="' + s.id + '">' + I.stop + ' Stop</button>'
+        : '<button class="btn btn--line btn--sm" data-act="retry" data-arg="' + s.id + '">Run it again</button>')
+      + '</div>'
+      + tabsBar(s)
+      + tabBody(s, false)
+      + '</div></div>' + toast() + '</div>';
+  }
+
+  function phoneWorkspace() {
+    var w = waiting();
+    var attention;
+    if (w.length) {
+      var r = w[0];
+      attention = '<button data-act="jump" data-arg="' + r.s.id + '" style="background:rgba(242,169,59,0.08);border:1px solid rgba(242,169,59,0.4);border-radius:14px;padding:15px;display:flex;flex-direction:column;gap:10px;cursor:pointer;color:inherit;font:inherit;text-align:left;width:100%">'
+        + '<div class="row" style="gap:8px;width:100%">' + I.warn
+        + '<span class="label" style="color:var(--need)">Waiting on you</span><span class="spacer"></span>'
+        + '<span class="mono num" style="font-size:11.5px;color:var(--need-dim)">' + esc(r.s.blockedFor || r.s.elapsed) + '</span></div>'
+        + '<span class="mono" style="font-size:11.5px;color:var(--need-ink)">' + esc(r.p.name) + ' / ' + esc(r.s.name) + '</span>'
+        + '<span style="font-size:15.5px;font-weight:600;color:var(--need-ink);line-height:1.35">Claude wants to run a command</span>'
+        + '<span class="mono truncate" style="width:100%;background:var(--term);border:1px solid var(--line-strong);border-radius:9px;padding:10px 12px;font-size:11.5px">' + esc(r.s.ask.cmd) + '</span>'
+        + '<span class="btn" style="height:46px;border-radius:10px;width:100%;font-size:15px">Read it and decide</span></button>';
+    } else {
+      attention = '<div style="background:rgba(79,191,135,0.07);border:1px solid rgba(79,191,135,0.3);border-radius:14px;padding:15px;display:flex;align-items:center;gap:11px">'
+        + I.check + '<span class="col" style="gap:3px"><span style="font-size:15px;font-weight:600;color:#8FD9B4">Nothing is waiting on you</span>'
+        + '<span class="mono" style="font-size:11px;color:#6E9C82">' + countStatus('working') + ' sessions · ' + totalBusyAgents() + ' agents running</span></span></div>';
+    }
+    var groups = '';
+    state.projects.forEach(function (p) {
+      if (!p.sessions.length) { return; }
+      var cards = '';
+      p.sessions.forEach(function (s) {
+        cards += '<button class="card" data-act="' + (s.status === 'waiting' ? 'jump' : 'open') + '" data-arg="' + s.id + '" style="border-radius:11px">'
+          + '<div class="card__rail" style="background:' + rail(s.status) + '"></div>'
+          + '<div class="card__body" style="padding:12px 13px;gap:6px">'
+          + '<div class="row" style="gap:8px"><span style="font-size:14px;font-weight:500;color:' + (s.status === 'working' || s.status === 'waiting' ? 'var(--ink)' : 'var(--ink-3)') + '" class="truncate">' + esc(s.name) + '</span>'
+          + '<span class="spacer"></span>'
+          + (s.status === 'working' || s.status === 'waiting' ? '<span class="dot dot--pulse" style="width:5px;height:5px;background:' + rail(s.status) + '"></span>' : '')
+          + '<span class="mono num" style="font-size:10.5px;color:' + rail(s.status) + '">' + esc(s.elapsed) + '</span></div>'
+          + '<div class="row" style="gap:8px">'
+          + (busyAgents(s) > 1 ? '<span class="mono num" style="font-size:10.5px;color:var(--work)">' + busyAgents(s) + ' agents</span>' : '')
+          + (s.queue.length ? '<span class="mono num" style="font-size:10.5px;color:var(--need-dim)">+' + s.queue.length + ' queued</span>' : '')
+          + (!busyAgents(s) && !s.queue.length ? '<span class="mono truncate" style="font-size:10.5px;color:var(--ink-4)">' + esc(s.status) + '</span>' : '')
+          + '</div></div></button>';
+      });
+      groups += '<div class="col" style="gap:7px"><div class="row" style="gap:8px">'
+        + '<span class="mono" style="font-size:11.5px;color:var(--ink-3)">' + esc(p.name) + '</span>'
+        + '<span class="spacer"></span>'
+        + '<span class="mono num" style="font-size:10.5px;color:var(--ink-4)">' + p.sessions.length + '</span></div>'
+        + '<div class="col" style="gap:7px">' + cards + '</div></div>';
+    });
+
+    return '<div class="app" style="display:flex;flex-direction:column">'
+      + '<div class="safe"></div>' + topbar(true)
+      + '<div style="flex-grow:1;min-height:0;overflow-y:auto;padding:14px 16px 0;display:flex;flex-direction:column;gap:16px">'
+      + attention + groups + '<div style="height:14px"></div></div>'
+      + '<div style="flex-shrink:0;height:80px;border-top:1px solid var(--line);background:#12141A;padding:12px 16px;display:flex;align-items:center;gap:10px">'
+      + '<button class="btn" style="flex-grow:1;height:50px;border-radius:12px;font-size:15px" data-act="new">' + I.plus + ' New session</button></div>'
+      + (state.modal === 'new' ? newModal(true) : '') + toast() + '</div>';
+  }
+
+  function phoneSession() {
+    var r = locate(state.openId);
+    var s = r.s;
+    return '<div class="app" style="display:flex;flex-direction:column">'
+      + '<div class="safe"></div>'
+      + '<div class="row" style="height:50px;flex-shrink:0;padding:0 8px;gap:6px;border-bottom:1px solid var(--line)">'
+      + '<button class="icon-btn icon-btn--plain" style="width:38px;height:38px" data-act="home">' + I.back + '</button>'
+      + '<div class="col" style="gap:1px;min-width:0">'
+      + '<span class="mono truncate" style="font-size:10px;color:var(--ink-4)">' + esc(r.p.name) + '</span>'
+      + '<span class="truncate" style="font-size:13.5px;font-weight:600">' + esc(s.name) + '</span></div>'
+      + '<span class="spacer"></span>'
+      + '<span class="mono num" style="font-size:10.5px;color:' + rail(s.status) + '">' + esc(s.elapsed) + '</span>'
+      + (s.status === 'working' || s.status === 'waiting'
+        ? '<button class="icon-btn icon-btn--danger" style="width:36px;height:36px" data-act="stop" data-arg="' + s.id + '">' + I.stop + '</button>' : '')
+      + '</div>'
+      + tabsBar(s)
+      + tabBody(s, true)
+      + toast() + '</div>';
+  }
+
+  /* ---------- new session ---------- */
+
+  function newModal(phone) {
+    var picks = '';
+    state.projects.forEach(function (p) {
+      var on = state.newProject === p.id;
+      picks += '<button class="chip mono" data-act="pickProject" data-arg="' + p.id + '" aria-pressed="' + on + '" style="border-radius:8px;padding:8px 13px;'
+        + (on ? 'background:rgba(242,169,59,0.13);border-color:var(--need);color:var(--need)' : '') + '">' + esc(p.name) + '</button>';
+    });
+    var body = '<div class="col" style="gap:9px"><span class="label">Which project</span>'
+      + '<div class="row" style="gap:7px;flex-wrap:wrap">' + picks + '</div>'
+      + '<span class="mono" style="font-size:10.5px;color:var(--ink-4)">' + esc(projectById(state.newProject).path)
+      + ' · ' + projectById(state.newProject).sessions.length + ' session(s) already open</span></div>'
+      + '<div class="col" style="gap:9px"><span class="label">First prompt</span>'
+      + '<div class="promptbox"><i>&gt;</i><textarea class="tinput" id="newPrompt" rows="' + (phone ? '3' : '4') + '" placeholder="What should Claude get on with?">' + esc(state.newPrompt) + '</textarea></div></div>';
+    if (phone) {
+      return '<div class="scrim" style="flex-direction:column;justify-content:flex-end">'
+        + '<div class="modal" style="border-radius:20px 20px 0 0;padding:18px 20px 24px;border-left:0;border-right:0;border-bottom:0">'
+        + '<div class="row" style="gap:10px"><span style="font-size:18px;font-weight:600">New session</span><span class="spacer"></span>'
+        + '<button class="icon-btn" data-act="closeNew">' + I.close + '</button></div>' + body
+        + '<button class="btn" style="height:52px;border-radius:12px;font-size:16px" data-act="startNew"' + (state.newPrompt.trim() ? '' : ' disabled') + '>Start it on home-mac</button></div></div>';
+    }
+    return '<div class="scrim" style="align-items:center;justify-content:center">'
+      + '<div class="modal" style="width:600px">'
+      + '<div class="row" style="gap:12px;align-items:flex-start">'
+      + '<div class="col" style="gap:4px"><h2 style="font-size:20px">New session</h2>'
+      + '<span style="font-size:13px;color:var(--ink-4)">A project can run as many sessions as you like, side by side.</span></div>'
+      + '<span class="spacer"></span><button class="icon-btn" data-act="closeNew">' + I.close + '</button></div>' + body
+      + '<span class="hr"></span>'
+      + '<div class="row" style="gap:9px"><span class="ghost-btn" style="cursor:default">Ask before edits</span>'
+      + '<span class="ghost-btn" style="cursor:default">Ping me when blocked</span><span class="spacer"></span>'
+      + '<button class="btn btn--line btn--md" data-act="closeNew">Cancel</button>'
+      + '<button class="btn btn--md" data-act="startNew"' + (state.newPrompt.trim() ? '' : ' disabled') + '>Start it</button></div></div></div>';
+  }
+
+  /* ---------- render ---------- */
+
+  function render() {
+    var vp = document.getElementById('viewport');
+    var inner;
+    if (state.view === 'desktop') {
+      inner = state.screen === 'login' ? deskLogin() : state.screen === 'session' ? deskSession() : deskWorkspace();
+      vp.innerHTML = '<div class="desk-frame">' + inner + '</div>';
+    } else {
+      inner = state.screen === 'login' ? phoneLogin() : state.screen === 'session' ? phoneSession() : phoneWorkspace();
+      vp.innerHTML = '<div class="phone-frame">' + inner + '</div>';
+    }
+    var segs = document.querySelectorAll('.seg button');
+    for (var i = 0; i < segs.length; i++) {
+      segs[i].setAttribute('aria-pressed', String(segs[i].getAttribute('data-arg') === state.view));
+    }
+    var t = document.getElementById('term');
+    if (t) { t.scrollTop = t.scrollHeight; }
+    var box = document.getElementById('newPrompt') || document.getElementById('composer');
+    if (box && state.focus) {
+      box.focus();
+      box.selectionStart = box.value.length;
+      box.selectionEnd = box.value.length;
+    }
+  }
+
+  function flash(msg) {
+    state.toast = msg;
+    render();
+    setTimeout(function () { if (state.toast === msg) { state.toast = null; render(); } }, 2600);
+  }
+
+  /* ---------- actions ---------- */
+
+  function resolve(s, kind) {
+    s.status = 'working';
+    s.blockedFor = null;
+    var cmd = s.ask ? s.ask.cmd : '';
+    s.ask = null;
+    s.agents[0].status = 'working';
+    s.agents[0].doing = kind === 'denied' ? 'taking a different route' : 'reinstalling dependencies';
+    s.lines = s.lines.filter(function (l) { return l.k !== 'wait'; });
+    if (kind === 'denied') {
+      s.lines.push({ k: 'err', text: 'You denied · ' + cmd });
+      s.lines.push({ k: 'say', text: 'Understood — leaving node_modules alone. I will pin the one dependency that actually changed instead, which avoids the full reinstall.' });
+      s.lines.push({ k: 'tool', name: 'Update', arg: 'package.json', out: 'Updated with 1 addition and 1 removal', ok: true });
+    } else {
+      s.lines.push({ k: 'ok', text: 'You approved · ' + (kind === 'all' ? 'every command this session' : cmd) });
+      s.lines.push({ k: 'tool', name: 'Bash', arg: cmd, out: 'done in 24.1s', ok: true });
+      s.lines.push({ k: 'say', text: 'Dependencies reinstalled. Adding the reconnect path so a browser that was away catches up on what it missed instead of showing a blank screen.' });
+    }
+    s.lines.push({ k: 'stream', text: 'Writing the catch-up handler' });
+  }
+
+  var ACTS = {
+    view: function (a) { state.view = a; state.focus = false; render(); },
+    reset: function () { var v = state.view; state = initial(); state.view = v; render(); },
+    step2: function () { state.step = 2; render(); },
+    trust: function () { state.trusted = !state.trusted; render(); },
+    fillDigit: function () { if (state.code.length < 6) { state.code += CODE.charAt(state.code.length); render(); } },
+    backspace: function () { state.code = state.code.slice(0, -1); render(); },
+    unlock: function () { if (state.code.length === 6) { state.screen = 'workspace'; render(); } },
+    lock: function () { var v = state.view; state = initial(); state.view = v; render(); },
+    home: function () { state.screen = 'workspace'; state.draft = ''; state.focus = false; render(); },
+    scope: function (a) { state.scope = a; render(); },
+    toggleProj: function (a) {
+      state.expanded[a] = !state.expanded[a];
+      state.scope = state.scope === a ? 'all' : a;
+      render();
+    },
+    open: function (a) {
+      state.openId = a; state.screen = 'session'; state.tab = 'terminal';
+      state.draft = ''; state.focus = false;
+      state.expanded[projectOf(a).id] = true;
+      render();
+    },
+    jump: function (a) {
+      state.openId = a; state.screen = 'session'; state.tab = 'waiting';
+      state.draft = ''; state.focus = false;
+      state.expanded[projectOf(a).id] = true;
+      render();
+    },
+    tab: function (a) { state.tab = a; state.focus = false; render(); },
+    approve: function (a) { resolve(locate(a).s, 'once'); state.tab = 'terminal'; flash('Approved · Claude carried on'); },
+    approveAll: function (a) { resolve(locate(a).s, 'all'); state.tab = 'terminal'; flash('Every command pre-approved for this session'); },
+    deny: function (a) { resolve(locate(a).s, 'denied'); state.tab = 'terminal'; flash('Denied · Claude is taking another route'); },
+    stop: function (a) {
+      var s = locate(a).s;
+      s.status = 'stopped'; s.ask = null; s.queue = [];
+      s.agents.forEach(function (ag) { if (ag.status === 'working' || ag.status === 'blocked') { ag.status = 'stopped'; ag.doing = 'stopped by you'; } });
+      s.lines = s.lines.filter(function (l) { return l.k !== 'wait' && l.k !== 'stream'; });
+      s.lines.push({ k: 'err', text: 'You stopped this run · queue cleared' });
+      state.tab = 'terminal';
+      flash('Stopped · every agent in this session too');
+    },
+    retry: function (a) {
+      var s = locate(a).s;
+      s.status = 'working'; s.elapsed = '2s';
+      s.agents[0].status = 'working'; s.agents[0].doing = 'picking up where it stopped';
+      s.lines.push({ k: 'prompt', text: 'Try that again.' });
+      s.lines.push({ k: 'stream', text: 'Picking up where it stopped' });
+      state.tab = 'terminal';
+      flash('Running again on home-mac');
+    },
+    send: function () {
+      var text = state.draft.trim();
+      if (!text) { return; }
+      var s = openS();
+      if (s.status === 'working' || s.status === 'waiting') {
+        s.queue.push(text);
+        state.draft = ''; state.focus = false;
+        flash('Added to the queue · ' + s.queue.length + ' waiting');
+      } else {
+        s.status = 'working';
+        s.agents[0].status = 'working';
+        s.agents[0].doing = 'starting on your prompt';
+        s.lines.push({ k: 'prompt', text: text });
+        s.lines.push({ k: 'stream', text: 'Reading the project' });
+        state.draft = ''; state.focus = false;
+        flash('Running now');
+      }
+    },
+    unqueue: function (a) {
+      var s = openS();
+      s.queue.splice(parseInt(a, 10), 1);
+      flash('Removed from the queue');
+    },
+    notify: function () { state.notify = !state.notify; render(); },
+    'new': function () { state.modal = 'new'; state.newPrompt = ''; render(); },
+    newIn: function (a) { state.modal = 'new'; state.newProject = a; state.newPrompt = ''; render(); },
+    closeNew: function () { state.modal = null; state.newPrompt = ''; state.focus = false; render(); },
+    pickProject: function (a) { state.newProject = a; render(); },
+    startNew: function () {
+      var text = state.newPrompt.trim();
+      if (!text) { return; }
+      var p = projectById(state.newProject);
+      var id = 's' + state.nextId;
+      state.nextId += 1;
+      p.sessions.unshift({
+        id: id,
+        name: text.length > 40 ? text.slice(0, 40) + '…' : text,
+        status: 'working', elapsed: '3s',
+        startedAt: 'just now', startedFrom: state.view === 'phone' ? 'your phone' : 'this browser',
+        ask: null, queue: [],
+        agents: [ { name: 'main', sub: false, status: 'working', elapsed: '3s', doing: 'getting its bearings in ' + p.name } ],
+        files: [],
+        lines: [ { k: 'prompt', text: text }, { k: 'stream', text: 'Reading ' + p.path } ]
+      });
+      state.modal = null; state.newPrompt = '';
+      state.openId = id; state.screen = 'session'; state.tab = 'terminal';
+      state.expanded[p.id] = true;
+      state.focus = false;
+      flash('Started in ' + p.name);
+    }
+  };
+
+  /* ---------- wiring ---------- */
+
+  document.addEventListener('click', function (ev) {
+    if (ev.target.classList && ev.target.classList.contains('scrim')) { ACTS.closeNew(); return; }
+    var el = ev.target.closest ? ev.target.closest('[data-act]') : null;
+    if (!el || el.disabled) { return; }
+    var act = el.getAttribute('data-act');
+    if (!ACTS[act]) { return; }
+    ev.preventDefault();
+    ACTS[act](el.getAttribute('data-arg'));
+  });
+
+  document.addEventListener('input', function (ev) {
+    var t = ev.target;
+    if (t.id === 'composer') {
+      state.draft = t.value;
+      var b = document.getElementById('sendBtn');
+      if (b) { b.disabled = !t.value.trim(); }
+    } else if (t.id === 'newPrompt') {
+      state.newPrompt = t.value;
+      var sb = document.querySelector('[data-act="startNew"]');
+      if (sb) { sb.disabled = !t.value.trim(); }
+    }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (state.screen === 'login' && state.step === 2) {
+      if (/^[0-9]$/.test(ev.key)) { if (state.code.length < 6) { state.code += ev.key; render(); } return; }
+      if (ev.key === 'Backspace') { state.code = state.code.slice(0, -1); render(); return; }
+      if (ev.key === 'Enter' && state.code.length === 6) { ACTS.unlock(); return; }
+    }
+    if (ev.target.id === 'composer' && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); ACTS.send(); return; }
+    if (ev.target.id === 'newPrompt' && ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); ACTS.startNew(); return; }
+    if (ev.key === 'Escape' && state.modal) { ACTS.closeNew(); }
+  });
+
+  render();
+})();
+</script>
