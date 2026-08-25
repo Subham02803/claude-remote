@@ -15,7 +15,9 @@ export default defineConfig({
     // the plain 100.x addresses are matched by Vite's IP handling.
     allowedHosts: ['.ts.net'],
     proxy: {
-      '/api': { target: `http://127.0.0.1:${SERVER_PORT}`, changeOrigin: true },
+      // ws:true matters — the terminal is a WebSocket, and without it Vite
+      // proxies the HTTP request and drops the upgrade.
+      '/api': { target: `http://127.0.0.1:${SERVER_PORT}`, changeOrigin: true, ws: true },
     },
   },
 });

@@ -15,7 +15,8 @@
     "dev:web": "pnpm --filter @claude-remote/web dev",
     "typecheck": "pnpm -r typecheck",
     "check": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

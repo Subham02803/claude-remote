@@ -1,7 +1,7 @@
 # Claude Remote — Security Model
 
 **Status:** Decided v1
-**Date:** 2026-08-24
+**Date:** 2026-08-24 · revised 2026-08-25 for the terminal bridge
 **Owner:** Subham Biswas
 
 > Short by design. It records one decision, the single gap that decision leaves,
@@ -31,7 +31,8 @@ good trade for a personal tool.
 secrets in `.env`, no sign-in friction from a phone.
 
 **What it costs:** any device on the tailnet has full access, with no second
-layer. A lost unlocked phone is a full compromise. That is accepted.
+layer — and because the bridge is a terminal, that access is a shell (§3). A
+lost unlocked phone is a full compromise of the machine. That is accepted.
 
 ## 2. The Gap Tailscale Does Not Close
 
@@ -63,21 +64,53 @@ Verified behaviour:
 | `Host: evil.ts.net.attacker.com` | **403** |
 | `Host: 192.168.1.50:4180` (LAN) | **403** |
 
-## 3. Rules For Step 2
+## 3. Rules For The Terminal Bridge
 
-The bridge is the point at which an HTTP endpoint gains the ability to run shell
-commands. Two rules, both cheap now and expensive to retrofit.
+We drive the real `claude` CLI in a PTY rather than the Agent SDK, so the work
+runs on the Max subscription (see `docs/03-implementation-plan.md` §0). That
+choice changes what this document can honestly promise.
 
-**R1 — The WebSocket upgrade gets the same host check.** `SameSite` does not
-protect WebSocket handshakes and WebSocket has no CORS, so a socket endpoint
-that skips the guard reopens the rebinding hole the guard exists to close —
-except now it reaches a shell. `registerHostGuard` runs on every request
-including health, deliberately: an endpoint left off a list like this is the
-hole that gets found later.
+### The bridge is a shell, not a remote control
 
-**R2 — Confine Claude to declared project directories.** Without a sign-in there
-is no second factor between a stray local process and a shell. Directory
-confinement is what keeps a mistake proportionate.
+Claude Code always had a Bash tool, but a permission prompt sat in front of it.
+A raw PTY does not, and `!` runs shell commands directly. So:
+
+**Any device on the tailnet has a full interactive shell as you.**
+
+That is accepted, and it is the price of the subscription billing. But it means
+the honest description of this product is "a terminal on my machine, reachable
+from my tailnet" — not "a door to Claude". Every judgement below follows from
+that sentence rather than from the softer one.
+
+### R1 — The WebSocket upgrade gets the same host check *(now the critical one)*
+
+`SameSite` does not protect WebSocket handshakes and WebSocket has no CORS. A
+socket endpoint that skips the guard reopens the DNS-rebinding hole `src/security/`
+exists to close — and under this design that hole reaches **a shell**, not a
+permission prompt.
+
+`registerHostGuard` is a global `onRequest` hook, so HTTP is covered
+automatically. Whether it fires on the upgrade depends on how the WebSocket
+plugin is wired. **Verify it by test, written before the socket works.** It is
+the cheapest insurance in the project and it guards the worst outcome.
+
+### R2 — ~~Confine Claude to declared project directories~~ *(withdrawn)*
+
+This rule was written for the Agent SDK design, where `cwd` and `disallowedTools`
+were enforced by the harness. With a terminal there is no harness: `cd` works,
+`!` works, and the tmux prefix opens new windows.
+
+**`cwd` on a tmux session is a convenience, not a boundary.** The rule is
+withdrawn rather than left standing as something the design cannot keep. A rule
+you cannot enforce is worse than no rule, because it invites you to believe you
+are protected.
+
+What remains, and is real:
+
+- The permission prompt still gates Claude's own tool use. Never run with
+  `--dangerously-skip-permissions`.
+- The tailnet is the boundary. Keep it small, and audit the device list the way
+  you would once have audited a session list.
 
 ## 4. Standing Principles
 

@@ -82,6 +82,34 @@ automatically, and a device you add tomorrow just works. What it rejects is a
 page on the open web re-resolving its own name to a local address to script
 requests at your server. Add other names with `ALLOWED_HOSTS`.
 
+## Running it in Docker
+
+```bash
+docker compose up --build      # → http://127.0.0.1:7420
+docker compose down
+```
+
+Port 7420 because 3000, 8000 and 8080 are already taken here. Inside the
+container the server still listens on 4180; only the published port differs.
+The image builds the web app and Fastify serves it, so the whole thing is one
+origin on one port.
+
+Two things in `docker-compose.yml` that are load-bearing rather than cosmetic:
+
+- **`"127.0.0.1:7420:4180"`** — the `127.0.0.1:` prefix. Without it Docker
+  publishes on every host interface, which would put a server with no sign-in
+  on whatever network you are attached to. That is exactly what `config.ts`
+  refuses to do on the host, and Docker will happily do it for you.
+- **`BIND_ANY=true`** — set only inside the container, where `0.0.0.0` means the
+  container's own namespace and the port mapping is what actually decides
+  exposure. Setting it on the host is the mistake the bind rule exists to stop.
+
+> ⚠️ From Step 3 of `docs/03-implementation-plan.md` onward, this app runs
+> `claude` in tmux **on your machine**, with your Max-plan credentials and your
+> project folders. A container has none of those. `docker-compose.yml` lists the
+> three ways to resolve that; the simplest is to keep the terminal on the host
+> and use `pnpm dev`.
+
 ## Layout
 
 ```
@@ -101,6 +129,7 @@ docs               Scope and decisions
 | `pnpm dev:server` / `pnpm dev:web` | One at a time |
 | `pnpm typecheck` | TypeScript across every package |
 | `pnpm check` / `pnpm format` | Lint / lint and fix |
+| `docker compose up --build` | The whole app in a container on 7420 |
 
 ## Configuration
 

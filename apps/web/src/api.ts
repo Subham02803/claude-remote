@@ -1,4 +1,4 @@
-import type { Health, HealthDetail } from '@claude-remote/shared';
+import type { HealthDetail, Project, Session } from '@claude-remote/shared';
 
 /** An error carrying the message the server chose, so screens can show it as-is. */
 export class ApiFailure extends Error {
@@ -31,6 +31,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<Health>('/api/health'),
   healthDetail: () => request<HealthDetail>('/api/health/detail'),
+  projects: () => request<{ projects: Project[] }>('/api/projects'),
+  sessions: () => request<{ sessions: Session[] }>('/api/sessions'),
+  startSession: (projectId: string, title?: string) =>
+    request<{ session: Session }>('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, title }),
+    }),
+  decide: (id: string, answer: 'approve' | 'deny') =>
+    request<{ ok: true }>(`/api/sessions/${encodeURIComponent(id)}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ answer }),
+    }),
+  sendPrompt: (id: string, text: string) =>
+    request<{ ok: true }>(`/api/sessions/${encodeURIComponent(id)}/prompt`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  stopSession: (id: string) =>
+    request<{ ok: true }>(`/api/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
+  changes: (id: string) =>
+    request<{ files: { path: string; edits: number; tool: string }[] }>(
+      `/api/sessions/${encodeURIComponent(id)}/changes`,
+    ),
+  endSession: (id: string) =>
+    request<{ ok: true }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

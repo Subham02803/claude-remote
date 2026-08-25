@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# claude-remote
+#
+#   docker compose up --build     →  http://127.0.0.1:7420
+#
+# Port 7420 because 3000, 8000 and 8080 are taken on this machine. The API
+# still listens on 4180 inside the container; only the published port differs.
+# ---------------------------------------------------------------------------
+
+services:
+  claude-remote:
+    build: .
+    container_name: claude-remote
+    restart: unless-stopped
+
+    # The "127.0.0.1:" prefix is not decoration. Without it Docker publishes on
+    # every host interface, which would put a server with no sign-in on whatever
+    # network you are attached to — the exact thing config.ts refuses to do on
+    # the host. Keep it.
+    ports:
+      - "127.0.0.1:7420:4180"
+
+    environment:
+      LOG_LEVEL: info
+      # Reached through the published port, so the container answers to the
+      # host name the browser actually types. Loopback and *.ts.net are
+      # allowed automatically; this covers nothing extra today and is here as
+      # the place to add a name when you need one.
+      ALLOWED_HOSTS: ""
+
+    volumes:
+      # SQLite lives here. Named, not a bind mount, so it survives a rebuild
+      # without leaving a stray folder in the repo.
+      - claude-remote-data:/data
+
+    # --- From Step 3 onward, uncomment ONE of these -----------------------
+    #
+    # This app's job is to run `claude` in tmux, on your machine, with your Max
+    # plan and your projects. A container has none of that by default. Three
+    # ways out, in order of how well they fit the design:
+    #
+    # (a) Do not containerise the PTY. Run the server on the host with
+    #     `pnpm dev` and keep this compose file for the parts that do not
+    #     touch a terminal. Simplest, and matches scope P1 exactly.
+    #
+    # (b) Drive the host's tmux from inside the container by sharing its
+    #     socket. claude then runs on the host, with host paths and host
+    #     credentials — the container is only a bridge.
+    #       volumes:
+    #         - /tmp/tmux-501:/tmp/tmux-501
+    #       user: "501:20"
+    #
+    # (c) Run claude inside the container. Needs the CLI in the image, your
+    #     credentials mounted, and every project mounted at a path that
+    #     matches the host. The container becomes the brain, which is a
+    #     different product than the one docs/01-product-scope.md describes.
+    #       volumes:
+    #         - ${HOME}/.claude:/root/.claude
+    #         - ${HOME}/projects:/root/projects
+    # ----------------------------------------------------------------------
+
+volumes:
+  claude-remote-data:

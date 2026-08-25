@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isIP } from 'node:net';
-import { dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { hostname } from './security/hosts.js';
 
@@ -30,7 +31,19 @@ const schema = z.object({
   DATABASE_PATH: z.string().min(1).default('./data/claude-remote.db'),
   PUBLIC_URL: z.string().url().optional(),
   ALLOWED_HOSTS: z.string().optional(),
+  BIND_ANY: z.enum(['true', 'false']).optional(),
+  TERMINAL_COMMAND: z.string().optional(),
+  PROJECTS: z.string().optional(),
 });
+
+/** One declared project. */
+export interface ProjectConfig {
+  /** Stable, derived from the name, and safe in a tmux session name. */
+  id: string;
+  name: string;
+  /** Absolute, and checked to exist at boot. */
+  path: string;
+}
 
 export interface Config {
   nodeEnv: 'development' | 'production' | 'test';
@@ -45,6 +58,12 @@ export interface Config {
   allowedHosts: string[];
   /** True when HOST cannot be reached from outside this machine. */
   boundToLoopback: boolean;
+  /** True when the bind-address rule was waived, which only containers should do. */
+  bindAny: boolean;
+  /** What runs in a session. `bash` is handy for tests that should not burn quota. */
+  terminalCommand: string;
+  /** Folders a session may be started in. Declared, never discovered. */
+  projects: ProjectConfig[];
   version: string;
   /** Legal but noteworthy configuration, surfaced at boot and in /api/health/detail. */
   warnings: string[];
@@ -93,9 +112,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // two places that is true of the right people are this machine and the
   // tailnet. Binding anywhere else — 0.0.0.0 above all — would put an
   // unauthenticated door on the local network.
-  if (!loopback && !isTailscale(e.HOST)) {
+  //
+  // BIND_ANY is the one exception, and it exists for containers: inside a
+  // container 0.0.0.0 is only the container's own namespace, and what actually
+  // decides exposure is the port mapping on the outside. Setting this on the
+  // host is exactly the mistake the rule above is here to prevent.
+  const bindAny = e.BIND_ANY === 'true';
+  if (!loopback && !isTailscale(e.HOST) && !bindAny) {
     problems.push(
-      `HOST must be a loopback address or this machine's Tailscale address (got "${e.HOST}"). There is no sign-in, so binding anywhere else exposes an unauthenticated server. Use 127.0.0.1 and reach it with "tailscale serve", or bind directly to your 100.x.y.z address.`,
+      `HOST must be a loopback address or this machine's Tailscale address (got "${e.HOST}"). There is no sign-in, so binding anywhere else exposes an unauthenticated server. Use 127.0.0.1 and reach it with "tailscale serve", or bind directly to your 100.x.y.z address. (Inside a container, set BIND_ANY=true and publish the port to 127.0.0.1 on the host.)`,
+    );
+  }
+  if (bindAny && !loopback && !isTailscale(e.HOST)) {
+    warnings.push(
+      `BIND_ANY=true: listening on ${e.HOST} with no sign-in. Only safe if something outside this process limits who can reach the port — a container publishing to 127.0.0.1, or a firewall.`,
     );
   }
 
@@ -108,6 +138,50 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       warnings.push(
         `PUBLIC_URL is not https, so browsers will treat it as an insecure context. Passkeys, service workers and web push will not work over "${url.protocol}//".`,
       );
+    }
+  }
+
+  // Projects: "name=/abs/path" pairs. Declared rather than discovered, so a
+  // session can only ever start somewhere you named on purpose.
+  const projects: ProjectConfig[] = [];
+  const rawProjects = (e.PROJECTS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (rawProjects.length === 0) {
+    projects.push({ id: 'default', name: basename(repoRoot), path: repoRoot });
+  } else {
+    for (const entry of rawProjects) {
+      const at = entry.indexOf('=');
+      if (at < 1) {
+        problems.push(`PROJECTS entry "${entry}" should look like name=/absolute/path.`);
+        continue;
+      }
+      const name = entry.slice(0, at).trim();
+      const path = resolve(
+        entry
+          .slice(at + 1)
+          .trim()
+          .replace(/^~(?=$|\/)/, homedir()),
+      );
+      const id = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      if (!id) {
+        problems.push(`PROJECTS entry "${entry}" has a name with no usable characters.`);
+        continue;
+      }
+      if (projects.some((p) => p.id === id)) {
+        problems.push(`PROJECTS has two projects that both reduce to the id "${id}".`);
+        continue;
+      }
+      // Failing at boot beats a session that dies the moment it starts.
+      if (!existsSync(path) || !statSync(path).isDirectory()) {
+        problems.push(`PROJECTS entry "${name}" points at "${path}", which is not a directory.`);
+        continue;
+      }
+      projects.push({ id, name, path });
     }
   }
 
@@ -129,6 +203,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicUrl: e.PUBLIC_URL ? e.PUBLIC_URL.replace(/\/+$/, '') : null,
     allowedHosts: [...new Set(extraHosts)],
     boundToLoopback: loopback,
+    bindAny,
+    terminalCommand: e.TERMINAL_COMMAND ?? 'claude',
+    projects,
     version: readVersion(),
     warnings,
   };

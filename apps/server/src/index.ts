@@ -1,9 +1,6 @@
-import rateLimit from '@fastify/rate-limit';
-import Fastify from 'fastify';
+import { buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { type Db, openDatabase } from './db/index.js';
-import { registerHealthRoutes } from './routes/health.js';
-import { registerHostGuard } from './security/guard.js';
 
 const startedAt = Date.now();
 
@@ -24,63 +21,14 @@ async function main(): Promise<void> {
     throw err;
   }
 
-  const app = Fastify({
-    logger: {
-      level: config.logLevel,
-      transport:
-        config.nodeEnv === 'development'
-          ? {
-              target: 'pino-pretty',
-              options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
-            }
-          : undefined,
-    },
-    // `tailscale serve` terminates TLS and proxies to loopback, so the real
-    // scheme and client address arrive in headers. Only that one hop is
-    // trusted: with `true`, any caller could set X-Forwarded-For and choose
-    // what req.ip says about them.
-    trustProxy: ['127.0.0.1', '::1'],
-    disableRequestLogging: config.logLevel !== 'debug' && config.logLevel !== 'trace',
-  });
-
   let db: Db;
   try {
-    db = openDatabase(config, app.log);
+    db = openDatabase(config, console);
   } catch (err) {
-    app.log.error({ err }, 'could not open the database');
-    fail(`Could not open the database at ${config.databasePath}.`);
+    fail(`Could not open the database at ${config.databasePath}.\n\n${String(err)}`);
   }
 
-  // Some endpoints are a POST with nothing to say. Fastify rejects an empty
-  // body when the content type claims JSON, so accept it as an empty object
-  // rather than making clients omit a header they would otherwise always send.
-  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
-    const raw = typeof body === 'string' ? body.trim() : '';
-    if (raw === '') {
-      done(null, {});
-      return;
-    }
-    try {
-      done(null, JSON.parse(raw));
-    } catch {
-      done(Object.assign(new Error('Body is not valid JSON.'), { statusCode: 400 }), undefined);
-    }
-  });
-
-  await app.register(rateLimit, {
-    global: false,
-    max: 300,
-    timeWindow: '1 minute',
-    keyGenerator: (req) => req.ip,
-  });
-
-  // Before every route, so a new subsystem cannot forget to opt in.
-  registerHostGuard(app, config);
-  registerHealthRoutes(app, config, db, startedAt);
-
-  app.setNotFoundHandler(async (_req, reply) =>
-    reply.code(404).send({ error: 'not_found', message: 'No such endpoint.' }),
-  );
+  const app = await buildApp({ config, db, startedAt });
 
   for (const w of config.warnings) app.log.warn(w);
 

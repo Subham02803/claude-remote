@@ -1,0 +1,614 @@
+<meta charset="utf-8">
+<title>Claude Remote — Technical Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #08090C;
+    --app: #0E1014;
+    --surface: #16191F;
+    --raised: #1C2027;
+    --line: #2A2F38;
+    --line-strong: #39404B;
+    --ink: #E8EAED;
+    --ink-2: #C9D0DA;
+    --ink-3: #A8AFBA;
+    --ink-4: #6E7681;
+    --need: #F2A93B;
+    --need-ink: #F5C889;
+    --work: #46B8CC;
+    --done: #4FBF87;
+    --fail: #E5675E;
+    --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink-2);
+    font-family: var(--sans); font-size: 15px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 56px 24px 100px; }
+
+  h1 { font-size: 38px; line-height: 1.12; letter-spacing: -0.03em; margin: 0 0 14px; color: var(--ink); font-weight: 600; }
+  h2 {
+    font-size: 24px; letter-spacing: -0.02em; margin: 60px 0 6px; color: var(--ink); font-weight: 600;
+    padding-top: 26px; border-top: 1px solid var(--line);
+  }
+  h3 { font-size: 16px; margin: 32px 0 8px; color: var(--ink); font-weight: 600; }
+  p { margin: 0 0 14px; }
+  a { color: var(--need); }
+  code {
+    font-family: var(--mono); font-size: 0.88em; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--ink);
+  }
+  strong { color: var(--ink); font-weight: 600; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--ink-4); }
+
+  .lede { font-size: 17px; color: var(--ink-3); line-height: 1.6; margin-bottom: 8px; }
+  .kicker { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); display: block; margin-bottom: 14px; }
+  .sub { font-size: 13.5px; color: var(--ink-4); margin: -2px 0 22px; }
+
+  .fig { margin: 26px 0 30px; }
+  .fig__frame { background: var(--app); border: 1px solid var(--line); border-radius: 12px; padding: 22px; overflow-x: auto; }
+  .fig svg { display: block; width: 100%; min-width: 640px; height: auto; }
+  .fig__cap { font-size: 12.5px; color: var(--ink-4); margin-top: 10px; line-height: 1.55; }
+  .fig__cap b { color: var(--ink-3); font-weight: 500; }
+
+  .note {
+    border-left: 2px solid var(--need); background: rgba(242,169,59,0.06);
+    padding: 13px 16px; border-radius: 0 8px 8px 0; margin: 22px 0; font-size: 14px;
+  }
+  .note--calm { border-left-color: var(--done); background: rgba(79,191,135,0.05); }
+  .note--warn { border-left-color: var(--fail); background: rgba(229,103,94,0.06); }
+  .note__t { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--need); margin-bottom: 6px; }
+  .note--calm .note__t { color: var(--done); }
+  .note--warn .note__t { color: var(--fail); }
+
+  table { border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); font-weight: 500; }
+  td code { font-size: 12px; }
+  .tw { overflow-x: auto; }
+
+  pre {
+    background: var(--app); border: 1px solid var(--line); border-radius: 9px;
+    padding: 15px 17px; overflow-x: auto; margin: 18px 0;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: var(--ink-2);
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+  pre .c { color: var(--ink-4); }
+  pre .k { color: var(--need); }
+  pre .s { color: var(--done); }
+  pre .f { color: var(--work); }
+
+
+  .status { display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; vertical-align: 2px; margin-left: 8px; font-weight: 500; }
+  .status--built { background: rgba(79,191,135,0.14); color: var(--done); }
+  .status--todo { background: rgba(242,169,59,0.14); color: var(--need); }
+</style>
+
+<div class="wrap">
+
+<span class="kicker">claude-remote · technical design</span>
+<h1>How it works inside</h1>
+<p class="lede">
+  Plain English, for the version we are about to build. We drive the real
+  <code>claude</code> command in a real terminal — no SDK, no API key — so the
+  work comes out of the Max subscription instead of metered credits.
+</p>
+<p class="sub">Companion to <code>docs/01-product-scope.md</code> (what it is for),
+  <code>docs/02-security-model.md</code> (how access is controlled),
+  <code>docs/03-implementation-plan.md</code> (the order we build it), and
+  <code>design/prototype.html</code> (what it looks like).</p>
+
+<h2>1. The shape of it</h2>
+
+<p>
+  There are two paths between your thumb and your code, and understanding the
+  design is mostly understanding why there are two.
+</p>
+
+<p>
+  The <strong>down path</strong> carries a terminal: bytes from Claude Code to
+  your screen, keystrokes back. The <strong>up path</strong> carries facts —
+  Claude Code's own hooks POST to our server to say <em>blocked</em>,
+  <em>finished</em>, <em>failed</em>. One path is for looking, the other is for
+  knowing.
+</p>
+
+<div class="fig">
+  <div class="fig__frame">
+    <svg viewBox="0 0 880 540" role="img" aria-label="Layer diagram: browser with xterm.js, Tailscale, tailscale serve, Fastify with node-pty and a hook receiver, tmux, and the claude CLI.">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#6E7681"/>
+        </marker>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#F2A93B"/>
+        </marker>
+      </defs>
+
+      <rect x="286" y="14" width="308" height="58" rx="9" fill="#16191F" stroke="#39404B"/>
+      <text x="440" y="40" text-anchor="middle" font-family="IBM Plex Sans" font-size="14" font-weight="600" fill="#E8EAED">Your phone or laptop</text>
+      <text x="440" y="58" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#6E7681">xterm.js draws the real TUI</text>
+
+      <line x1="440" y1="72" x2="440" y2="102" stroke="#6E7681" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="230" y="104" width="420" height="50" rx="9" fill="rgba(70,184,204,0.07)" stroke="rgba(70,184,204,0.42)"/>
+      <text x="440" y="125" text-anchor="middle" font-family="IBM Plex Sans" font-size="13.5" font-weight="600" fill="#46B8CC">Tailscale — the only gate</text>
+      <text x="440" y="143" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#5C93A0">WireGuard · no public listener exists</text>
+
+      <line x1="440" y1="154" x2="440" y2="182" stroke="#6E7681" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="34" y="184" width="812" height="340" rx="13" fill="none" stroke="#39404B" stroke-dasharray="5 4"/>
+      <text x="52" y="206" font-family="IBM Plex Mono" font-size="10.5" letter-spacing="1.4" fill="#6E7681">HOME-MAC</text>
+
+      <rect x="286" y="216" width="308" height="44" rx="8" fill="#1C2027" stroke="#2A2F38"/>
+      <text x="440" y="234" text-anchor="middle" font-family="IBM Plex Sans" font-size="13" font-weight="600" fill="#E8EAED">tailscale serve</text>
+      <text x="440" y="251" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#6E7681">TLS → 127.0.0.1</text>
+
+      <line x1="440" y1="260" x2="440" y2="284" stroke="#6E7681" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="96" y="286" width="688" height="104" rx="10" fill="#16191F" stroke="#39404B"/>
+      <text x="116" y="310" font-family="IBM Plex Sans" font-size="14" font-weight="600" fill="#E8EAED">Fastify — one process</text>
+
+      <rect x="116" y="322" width="150" height="54" rx="7" fill="rgba(242,169,59,0.09)" stroke="rgba(242,169,59,0.4)"/>
+      <text x="191" y="343" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#F5C889">host guard</text>
+      <text x="191" y="360" text-anchor="middle" font-family="IBM Plex Mono" font-size="9.5" fill="#B08A52">Host + Origin</text>
+
+      <rect x="280" y="322" width="150" height="54" rx="7" fill="#1C2027" stroke="#2A2F38"/>
+      <text x="355" y="343" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#C9D0DA">node-pty</text>
+      <text x="355" y="360" text-anchor="middle" font-family="IBM Plex Mono" font-size="9.5" fill="#6E7681">bytes ⇅ keystrokes</text>
+
+      <rect x="444" y="322" width="164" height="54" rx="7" fill="rgba(242,169,59,0.09)" stroke="rgba(242,169,59,0.4)"/>
+      <text x="526" y="343" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#F5C889">hook receiver</text>
+      <text x="526" y="360" text-anchor="middle" font-family="IBM Plex Mono" font-size="9.5" fill="#B08A52">how we know things</text>
+
+      <rect x="622" y="322" width="146" height="54" rx="7" fill="#1C2027" stroke="#2A2F38"/>
+      <text x="695" y="343" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#C9D0DA">SQLite</text>
+      <text x="695" y="360" text-anchor="middle" font-family="IBM Plex Mono" font-size="9.5" fill="#6E7681">metadata only</text>
+
+      <line x1="355" y1="390" x2="355" y2="414" stroke="#6E7681" stroke-width="1.4" marker-end="url(#a1)"/>
+      <text x="366" y="407" font-family="IBM Plex Mono" font-size="10" fill="#6E7681">attach</text>
+
+      <rect x="216" y="416" width="280" height="44" rx="8" fill="rgba(79,191,135,0.07)" stroke="rgba(79,191,135,0.4)"/>
+      <text x="356" y="434" text-anchor="middle" font-family="IBM Plex Sans" font-size="13" font-weight="600" fill="#4FBF87">tmux</text>
+      <text x="356" y="451" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#6E9C82">outlives everything above it</text>
+
+      <line x1="356" y1="460" x2="356" y2="482" stroke="#6E7681" stroke-width="1.4" marker-end="url(#a1)"/>
+      <rect x="216" y="484" width="280" height="30" rx="6" fill="#1C2027" stroke="#2A2F38"/>
+      <text x="356" y="504" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#A8AFBA">claude — your Max plan</text>
+
+      <path d="M496 499 L560 499 L560 390" stroke="#F2A93B" stroke-width="1.4" fill="none" marker-end="url(#a3)"/>
+      <text x="572" y="452" font-family="IBM Plex Mono" font-size="10" fill="#F5C889">hooks</text>
+      <text x="572" y="466" font-family="IBM Plex Mono" font-size="10" fill="#B08A52">http POST</text>
+    </svg>
+  </div>
+  <p class="fig__cap">
+    <b>Grey is the terminal, amber is the knowing.</b> Claude Code talks to us the
+    same way it would talk to any other tool on the machine — through its own hook
+    system — so we never have to guess at meaning by reading the screen.
+  </p>
+</div>
+
+<div class="note note--calm">
+  <span class="note__t">Why the terminal, and not the Agent SDK</span>
+  The SDK is the tidier programming interface, and it was the first design in this
+  file. It bills to metered API credits. The <code>claude</code> command is
+  already signed in to the Max plan, so running it remotely costs exactly what
+  running it at the desk costs — nothing extra. That single fact decided the
+  architecture, and everything below is downstream of it.
+</div>
+
+<h2>2. What a session actually is</h2>
+
+<p>
+  A session on the screen is a tmux session on the machine. That is the whole
+  definition, and almost every durability requirement in the scope document falls
+  out of it for free.
+</p>
+
+<pre><code><span class="c"># starting one — detached, in the project folder, running claude</span>
+tmux new-session -d -s cr-<span class="f">&lt;id&gt;</span> -c <span class="s">~/projects/web-dashboard</span> claude
+
+<span class="c"># what node-pty actually spawns when a browser connects</span>
+tmux attach -t cr-<span class="f">&lt;id&gt;</span></code></pre>
+
+<p>
+  <strong>We never spawn <code>claude</code> directly.</strong> Going through tmux
+  is the difference between a session that dies when a socket drops and one that
+  does not notice.
+</p>
+
+<div class="fig">
+  <div class="fig__frame">
+    <svg viewBox="0 0 880 260" role="img" aria-label="Diagram showing that the browser, the server and the phone can all disappear while the tmux session keeps running.">
+      <defs>
+        <marker id="e1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#4FBF87"/>
+        </marker>
+      </defs>
+
+      <g font-family="IBM Plex Mono" font-size="11.5" text-anchor="middle">
+        <rect x="40" y="26" width="186" height="40" rx="8" fill="#16191F" stroke="#39404B"/>
+        <text x="133" y="51" fill="#6E7681">browser closes</text>
+        <rect x="40" y="80" width="186" height="40" rx="8" fill="#16191F" stroke="#39404B"/>
+        <text x="133" y="105" fill="#6E7681">server restarts</text>
+        <rect x="40" y="134" width="186" height="40" rx="8" fill="#16191F" stroke="#39404B"/>
+        <text x="133" y="159" fill="#6E7681">phone dies</text>
+        <rect x="40" y="188" width="186" height="40" rx="8" fill="#16191F" stroke="#39404B"/>
+        <text x="133" y="213" fill="#6E7681">you move to the laptop</text>
+      </g>
+
+      <g font-family="IBM Plex Mono" font-size="17" fill="#E5675E" text-anchor="middle">
+        <text x="256" y="53">&#10005;</text><text x="256" y="107">&#10005;</text>
+        <text x="256" y="161">&#10005;</text><text x="256" y="215">&#10005;</text>
+      </g>
+
+      <rect x="304" y="80" width="240" height="98" rx="11" fill="rgba(79,191,135,0.08)" stroke="#4FBF87"/>
+      <text x="424" y="118" text-anchor="middle" font-family="IBM Plex Sans" font-size="15" font-weight="600" fill="#4FBF87">tmux keeps running</text>
+      <text x="424" y="140" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#6E9C82">scrollback intact</text>
+      <text x="424" y="157" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#6E9C82">claude still working</text>
+
+      <line x1="544" y1="129" x2="598" y2="129" stroke="#4FBF87" stroke-width="1.4" marker-end="url(#e1)"/>
+
+      <rect x="606" y="86" width="234" height="86" rx="10" fill="#1C2027" stroke="#39404B"/>
+      <text x="723" y="116" text-anchor="middle" font-family="IBM Plex Sans" font-size="13" font-weight="600" fill="#E8EAED">tmux attach</text>
+      <text x="723" y="137" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#6E7681">from anywhere,</text>
+      <text x="723" y="153" text-anchor="middle" font-family="IBM Plex Mono" font-size="10.5" fill="#6E7681">and you are back</text>
+    </svg>
+  </div>
+  <p class="fig__cap">
+    <b>P2 and UC-8 for free.</b> "Never lose a session" and "pick up on my laptop
+    what I started on my phone" are the same operation — reattaching — and neither
+    is code we have to write.
+  </p>
+</div>
+
+<div class="tw">
+<table>
+  <tr><th>The screen says</th><th>Underneath that is</th></tr>
+  <tr><td>A session</td><td>A tmux session named <code>cr-&lt;id&gt;</code></td></tr>
+  <tr><td>The terminal</td><td>A real PTY, rendered by xterm.js</td></tr>
+  <tr><td>The scrollback</td><td>tmux's own — we store none of it</td></tr>
+  <tr><td>Waiting on you</td><td>A <code>PermissionRequest</code> hook that fired and has not been answered</td></tr>
+  <tr><td>Approve</td><td>A keystroke written into the PTY</td></tr>
+  <tr><td>Stop</td><td><code>Ctrl-C</code>, or <code>tmux kill-session</code> for the hard version</td></tr>
+</table>
+</div>
+
+<div class="note">
+  <span class="note__t">Who is the source of truth</span>
+  <code>tmux list-sessions</code> decides what <em>exists</em>. SQLite stores only
+  what tmux cannot hold — which project a session belongs to, its title, which
+  device started it. On boot we reconcile: a tmux session with no row is adopted,
+  a row with no tmux session is marked ended. Two registries that can disagree is
+  a bug factory, so one of them has to win, and it is tmux.
+</div>
+
+<h2>3. How we know what is happening</h2>
+
+<p>
+  The obvious failure mode of a terminal bridge is that you only get bytes, and end
+  up writing regular expressions against a TUI to guess whether Claude is blocked.
+  We do not do that. Claude Code has a hook system, hooks can be
+  <code>type: "http"</code>, and so Claude Code simply tells us.
+</p>
+
+<pre><code><span class="c">// a hook that POSTs to us instead of running a script</span>
+{
+  <span class="s">"hooks"</span>: {
+    <span class="s">"PermissionRequest"</span>: [{
+      <span class="s">"hooks"</span>: [{ <span class="s">"type"</span>: <span class="s">"http"</span>, <span class="s">"url"</span>: <span class="s">"http://127.0.0.1:4180/api/hooks"</span> }]
+    }]
+  }
+}</code></pre>
+
+<div class="tw">
+<table>
+  <tr><th>Hook</th><th>What it tells us</th><th>Drives</th></tr>
+  <tr><td><code>SessionStart</code></td><td>Claude's <code>session_id</code> and <code>transcript_path</code></td><td>Linking a tmux session to a Claude session</td></tr>
+  <tr><td><code>PermissionRequest</code></td><td><strong>Blocked</strong> — plus <code>tool_name</code> and <code>tool_input</code></td><td>The banner, the badge, the push</td></tr>
+  <tr><td><code>PostToolUse</code></td><td><code>tool_name</code>, <code>tool_input</code>, <code>tool_result</code></td><td>The Changes tab; clearing the block</td></tr>
+  <tr><td><code>Stop</code></td><td>Finished, with <code>last_assistant_message</code></td><td>Done state</td></tr>
+  <tr><td><code>StopFailure</code></td><td>Died — matchable by type, including <code>rate_limit</code></td><td>Failed state, and the second push</td></tr>
+  <tr><td><code>SessionEnd</code></td><td>Gone, and why</td><td>Cleanup</td></tr>
+</table>
+</div>
+
+<p>
+  Every payload also carries <code>transcript_path</code> — the session's JSONL on
+  disk. That is where the Changes tab gets real file history from, without parsing
+  a single escape sequence.
+</p>
+
+<div class="note note--warn">
+  <span class="note__t">The mapping trap</span>
+  <code>cwd</code> is <em>not</em> a unique key — two sessions can run in the same
+  folder, and scope UC-10 explicitly wants that. Capture Claude's own
+  <code>session_id</code> at <code>SessionStart</code> and map on it. Getting this
+  wrong means one session's approval prompt appearing on another session's screen.
+</div>
+
+<h2>4. The approval round-trip</h2>
+
+<p>
+  The thirty-second unblock — UC-1, the reason the product exists. Two channels
+  cooperate: the hook tells us <em>that</em> a decision is needed, and the
+  keystroke delivers it.
+</p>
+
+<div class="fig">
+  <div class="fig__frame">
+    <svg viewBox="0 0 880 440" role="img" aria-label="Sequence diagram: Claude's permission prompt, the hook notifying the server, a push to the phone, and the answer travelling back as a keystroke.">
+      <defs>
+        <marker id="b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#A8AFBA"/>
+        </marker>
+        <marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#F2A93B"/>
+        </marker>
+        <marker id="b3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#4FBF87"/>
+        </marker>
+      </defs>
+
+      <g font-family="IBM Plex Mono" font-size="11" fill="#C9D0DA" text-anchor="middle">
+        <rect x="14" y="14" width="164" height="30" rx="6" fill="#1C2027" stroke="#2A2F38"/><text x="96" y="34">claude in tmux</text>
+        <rect x="238" y="14" width="164" height="30" rx="6" fill="#1C2027" stroke="#2A2F38"/><text x="320" y="34">Fastify</text>
+        <rect x="466" y="14" width="150" height="30" rx="6" fill="#1C2027" stroke="#2A2F38"/><text x="541" y="34">phone</text>
+        <rect x="690" y="14" width="150" height="30" rx="6" fill="#1C2027" stroke="#2A2F38"/><text x="765" y="34">you</text>
+      </g>
+      <g stroke="#2A2F38" stroke-dasharray="3 4">
+        <line x1="96" y1="46" x2="96" y2="418"/>
+        <line x1="320" y1="46" x2="320" y2="418"/>
+        <line x1="541" y1="46" x2="541" y2="418"/>
+        <line x1="765" y1="46" x2="765" y2="418"/>
+      </g>
+
+      <g font-family="IBM Plex Mono" font-size="10.5" fill="#A8AFBA">
+        <rect x="26" y="62" width="140" height="28" rx="5" fill="rgba(242,169,59,0.1)" stroke="rgba(242,169,59,0.4)"/>
+        <text x="96" y="80" text-anchor="middle" fill="#F5C889">TUI asks 1 / 2 / 3</text>
+
+        <line x1="96" y1="112" x2="313" y2="112" stroke="#F2A93B" stroke-width="1.3" marker-end="url(#b2)"/>
+        <text x="204" y="105" text-anchor="middle" fill="#F5C889">PermissionRequest hook (http)</text>
+
+        <line x1="96" y1="142" x2="534" y2="142" stroke="#A8AFBA" stroke-width="1.3" marker-end="url(#b1)"/>
+        <text x="315" y="135" text-anchor="middle">…and the TUI itself, over the PTY</text>
+
+        <line x1="320" y1="174" x2="758" y2="174" stroke="#F2A93B" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#b2)"/>
+        <text x="540" y="167" text-anchor="middle" fill="#F5C889">web push — one of only two that interrupt</text>
+
+        <rect x="86" y="200" width="18" height="76" rx="4" fill="rgba(242,169,59,0.16)"/>
+        <text x="62" y="243" text-anchor="end" fill="#B08A52">blocked</text>
+
+        <line x1="758" y1="222" x2="548" y2="222" stroke="#A8AFBA" stroke-width="1.3" marker-end="url(#b1)"/>
+        <text x="653" y="215" text-anchor="middle">opens, reads the question</text>
+
+        <line x1="541" y1="256" x2="327" y2="256" stroke="#4FBF87" stroke-width="1.3" marker-end="url(#b3)"/>
+        <text x="434" y="249" text-anchor="middle" fill="#4FBF87">taps Approve</text>
+
+        <line x1="313" y1="292" x2="103" y2="292" stroke="#4FBF87" stroke-width="1.3" marker-end="url(#b3)"/>
+        <text x="208" y="285" text-anchor="middle" fill="#4FBF87">writes the keystroke into the PTY</text>
+
+        <line x1="96" y1="328" x2="534" y2="328" stroke="#A8AFBA" stroke-width="1.3" marker-end="url(#b1)"/>
+        <text x="315" y="321" text-anchor="middle">TUI advances, output streams on</text>
+
+        <line x1="96" y1="366" x2="313" y2="366" stroke="#F2A93B" stroke-width="1.3" marker-end="url(#b2)"/>
+        <text x="204" y="359" text-anchor="middle" fill="#F5C889">PostToolUse hook</text>
+
+        <rect x="242" y="382" width="156" height="28" rx="5" fill="rgba(79,191,135,0.1)" stroke="rgba(79,191,135,0.4)"/>
+        <text x="320" y="400" text-anchor="middle" fill="#4FBF87">clear the block</text>
+      </g>
+    </svg>
+  </div>
+  <p class="fig__cap">
+    <b>The hook signals; the keystroke decides.</b> Both are needed — the hook so
+    your phone can buzz without you watching, the keystroke because the TUI is what
+    actually owns the answer.
+  </p>
+</div>
+
+<h3>Why the hook does not make the decision</h3>
+
+<p>
+  Hooks can return a <code>permissionDecision</code>, which looks like a tidier
+  design: let the hook block until the phone answers. It is a trap.
+  <strong>Hooks have a timeout.</strong> Parking one for the twenty minutes you
+  spend on a bus would hit it and resolve as something you did not choose.
+</p>
+
+<p>
+  So the terminal keeps ownership of the answer and the hook is a doorbell. It also
+  means the desktop path — just typing <code>1</code> into the terminal like you
+  always have — keeps working, with nothing special about it.
+</p>
+
+<div class="note note--warn">
+  <span class="note__t">Never leave a live button pointing at a moved-on terminal</span>
+  The Approve button writes a keystroke blind. It must render <em>only</em> while a
+  <code>PermissionRequest</code> is genuinely outstanding, and must clear on
+  <code>PostToolUse</code> or <code>PermissionDenied</code>. A stale button that
+  types <code>1</code> into a prompt that has already advanced is answering a
+  question nobody asked.
+</div>
+
+<p>
+  One more thing to settle by looking rather than remembering:
+  <strong>which keys the current permission prompt accepts.</strong> Open it, read
+  it, write it down. Do not hardcode from memory.
+</p>
+
+<h2>5. What the browser and server say to each other</h2>
+
+<p>
+  One socket for the terminal, plain REST for everything with an answer, and one
+  inbound endpoint that is not for the browser at all.
+</p>
+
+<div class="tw">
+<table>
+  <tr><th>Route</th><th>What it does</th></tr>
+  <tr><td><code>WS /api/terminal/:id</code></td><td>Output bytes down; keystrokes and <code>cols</code>/<code>rows</code> up.</td></tr>
+  <tr><td><code>POST /api/hooks</code></td><td><strong>Claude Code posts here</strong>, not the browser. Loopback only.</td></tr>
+  <tr><td><code>GET /api/projects</code></td><td>Declared project folders. Config, not discovery.</td></tr>
+  <tr><td><code>GET /api/sessions</code></td><td>The overview. Reconciled from <code>tmux list-sessions</code>.</td></tr>
+  <tr><td><code>POST /api/sessions</code></td><td>New tmux session in a project.</td></tr>
+  <tr><td><code>POST /api/sessions/:id/keys</code></td><td>Write a keystroke — how Approve and Deny work.</td></tr>
+  <tr><td><code>POST /api/sessions/:id/stop</code></td><td><code>Ctrl-C</code>, or kill the session.</td></tr>
+  <tr><td><code>POST /api/push/subscribe</code></td><td>Register a device for the two notifications.</td></tr>
+</table>
+</div>
+
+<div class="note note--warn">
+  <span class="note__t">Rule R1 — the one test to write first</span>
+  The host guard is an <code>onRequest</code> hook covering every HTTP route.
+  <strong>Verify by test that it also runs on the WebSocket upgrade.</strong>
+  <code>SameSite</code> does not protect WebSocket handshakes and WebSocket has no
+  CORS — and this socket is a terminal, so a page that slips past the check gets a
+  shell, not a permission prompt. Write that test before the socket works.
+</div>
+
+<h2>6. What is stored</h2>
+
+<p>
+  Very little, on purpose. tmux holds the scrollback, the JSONL transcript holds the
+  history, and SQLite holds only what neither of them knows.
+</p>
+
+<div class="tw">
+<table>
+  <tr><th>Table</th><th>Holds</th><th>Why</th></tr>
+  <tr><td><code>projects</code></td><td>name, absolute path</td><td>Where a new session is started.</td></tr>
+  <tr><td><code>sessions</code></td><td>id, project, tmux name, claude session_id, title, started_from</td><td>What tmux cannot record.</td></tr>
+  <tr><td><code>asks</code></td><td>session, tool, input, status, decided_at, decided_from</td><td>What was approved, from which device.</td></tr>
+  <tr><td><code>push_subs</code></td><td>endpoint, keys, device label</td><td>Who to buzz.</td></tr>
+  <tr><td><code>audit_log</code> <span class="status status--built">exists</span></td><td>event, actor, detail, ip, user agent</td><td>Already in migration 001.</td></tr>
+</table>
+</div>
+
+<h2>7. A session's life</h2>
+
+<div class="fig">
+  <div class="fig__frame">
+    <svg viewBox="0 0 880 250" role="img" aria-label="State machine driven by hooks: starting, working and waiting are live; done, failed and gone are terminal.">
+      <defs>
+        <marker id="d1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#6E7681"/>
+        </marker>
+      </defs>
+
+      <g font-family="IBM Plex Mono" font-size="11.5" text-anchor="middle">
+        <rect x="30" y="100" width="104" height="42" rx="8" fill="#1C2027" stroke="#39404B"/>
+        <text x="82" y="126" fill="#A8AFBA">starting</text>
+
+        <rect x="196" y="100" width="104" height="42" rx="8" fill="rgba(70,184,204,0.12)" stroke="#46B8CC"/>
+        <text x="248" y="126" fill="#46B8CC">working</text>
+
+        <rect x="396" y="100" width="104" height="42" rx="8" fill="rgba(242,169,59,0.13)" stroke="#F2A93B"/>
+        <text x="448" y="126" fill="#F2A93B">waiting</text>
+
+        <rect x="632" y="34" width="104" height="38" rx="8" fill="rgba(79,191,135,0.12)" stroke="#4FBF87"/>
+        <text x="684" y="58" fill="#4FBF87">done</text>
+
+        <rect x="632" y="102" width="104" height="38" rx="8" fill="rgba(229,103,94,0.12)" stroke="#E5675E"/>
+        <text x="684" y="126" fill="#E5675E">failed</text>
+
+        <rect x="632" y="170" width="104" height="38" rx="8" fill="#1C2027" stroke="#39404B"/>
+        <text x="684" y="194" fill="#A8AFBA">gone</text>
+      </g>
+
+      <g stroke="#6E7681" stroke-width="1.3" fill="none" marker-end="url(#d1)">
+        <line x1="134" y1="121" x2="189" y2="121"/>
+        <line x1="300" y1="110" x2="389" y2="110"/>
+        <line x1="389" y1="134" x2="307" y2="134"/>
+      </g>
+      <g stroke="#6E7681" stroke-width="1.3" fill="none" opacity="0.75">
+        <path d="M500 121 H586"/>
+        <path d="M248 142 V214 H586"/>
+        <path d="M586 53 V214"/>
+      </g>
+      <g stroke="#6E7681" stroke-width="1.3" fill="none" marker-end="url(#d1)">
+        <line x1="586" y1="53" x2="625" y2="53"/>
+        <line x1="586" y1="121" x2="625" y2="121"/>
+        <line x1="586" y1="189" x2="625" y2="189"/>
+      </g>
+
+      <g font-family="IBM Plex Mono" font-size="10" fill="#6E7681" text-anchor="middle">
+        <text x="344" y="101">PermissionRequest</text>
+        <text x="344" y="152">you answered</text>
+      </g>
+      <g font-family="IBM Plex Mono" font-size="9.5" fill="#6E7681">
+        <text x="750" y="57" fill="#4FBF87">Stop hook</text>
+        <text x="750" y="125" fill="#E5675E">StopFailure hook</text>
+        <text x="750" y="193">SessionEnd / tmux gone</text>
+      </g>
+    </svg>
+  </div>
+  <p class="fig__cap">
+    <b>Every transition is a hook, not a guess.</b> Which is the point of §3 —
+    scope P6 demands that working / waiting / done / failed is never ambiguous, and
+    a regular expression over a TUI could never honestly promise that.
+  </p>
+</div>
+
+<h2>8. Being told things</h2>
+
+<p>
+  Only two events interrupt you: <strong>blocked</strong>
+  (<code>PermissionRequest</code>) and <strong>failed</strong>
+  (<code>StopFailure</code>). Everything else waits until you look. Scope §10 names
+  notification fatigue as a real risk, so this is a design constraint rather than a
+  preference.
+</p>
+
+<p>
+  Web Push needs a service worker, and a service worker needs a secure context.
+  That is what <code>tailscale serve</code> is for, and why plain HTTP on the
+  tailnet address is the lesser option.
+</p>
+
+<h2>9. What this design costs</h2>
+
+<p>
+  Worth stating plainly once, because the honest description of the product changed
+  when we chose the terminal.
+</p>
+
+<p>
+  <strong>A terminal in a browser is a shell, not a remote control for Claude.</strong>
+  Claude Code always had a Bash tool, but a permission prompt sat in front of it. A
+  raw PTY does not, and <code>!</code> runs shell commands directly. With no
+  sign-in, <strong>any device on your tailnet has a full shell as you.</strong>
+</p>
+
+<p>Two things follow, and both are already reflected in the security model:</p>
+
+<ul>
+  <li>The tailnet gate now does <strong>all</strong> of the security work. The
+    <code>Host</code>/<code>Origin</code> guard matters more, not less.</li>
+  <li>The old rule "confine Claude to declared project directories" is not
+    enforceable at the app layer any more. <code>cwd</code> on the tmux session is
+    a convenience, not a boundary — and the documents say so rather than pretending
+    otherwise.</li>
+</ul>
+
+<h2>10. Things we are deliberately not doing</h2>
+
+<ul>
+  <li><strong>No Agent SDK and no API key.</strong> The subscription is the point.</li>
+  <li><strong>No scraping the TUI for state.</strong> Hooks or nothing. If a hook
+    cannot tell us something, we do not display it.</li>
+  <li><strong>No storing scrollback.</strong> tmux already has it, and two copies
+    would disagree.</li>
+  <li><strong>No second process.</strong> One Fastify owns the PTYs; tmux owns
+    durability.</li>
+  <li><strong>No <code>--dangerously-skip-permissions</code>.</strong> The
+    permission prompt is the last gate that still exists.</li>
+</ul>
+
+</div>

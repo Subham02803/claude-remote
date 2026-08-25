@@ -1,4 +1,9 @@
-export function Mark({ size = 22 }: { size?: number }) {
+import type { SessionStatus } from '@claude-remote/shared';
+
+/* Icons and atoms, lifted from design/prototype.html so the app and the
+   prototype look like one thing rather than two. */
+
+export function Mark({ size = 20 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -20,12 +25,99 @@ export function Mark({ size = 22 }: { size?: number }) {
 
 export function Brand() {
   return (
-    <div className="brand">
+    <span className="brand">
       <Mark />
-      <span>
-        claude<span style={{ color: 'var(--ink-4)' }}>·</span>remote
+      <span className="brand__word">
+        claude<i>·</i>remote
       </span>
-    </div>
+    </span>
+  );
+}
+
+export function Warn() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="var(--need)"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M8 2.6 14.4 13.4H1.6L8 2.6Z" />
+      <path d="M8 6.6v3" />
+      <path d="M8 11.4h.01" />
+    </svg>
+  );
+}
+
+export function Check() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="var(--done)"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M3.6 9.4 7 12.8l7.4-7.4" />
+    </svg>
+  );
+}
+
+export function Plus() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M8 3.2v9.6M3.2 8h9.6" />
+    </svg>
+  );
+}
+
+export function Back() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M9.6 3.6 5.2 8l4.4 4.4" />
+    </svg>
+  );
+}
+
+export function Chev({ down }: { down?: boolean }) {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      {down ? <path d="M2.8 4 6 7.6 9.2 4" /> : <path d="M4 2.8 7.6 6 4 9.2" />}
+    </svg>
   );
 }
 
@@ -34,5 +126,38 @@ export function Problem({ children }: { children: React.ReactNode }) {
     <div className="err" role="alert">
       {children}
     </div>
+  );
+}
+
+/** The one place a status becomes a colour, so nothing can disagree. */
+export function railColour(s: SessionStatus): string {
+  return s === 'waiting'
+    ? 'var(--need)'
+    : s === 'working'
+      ? 'var(--work)'
+      : s === 'done'
+        ? 'var(--done)'
+        : s === 'failed'
+          ? 'var(--fail)'
+          : 'var(--line-strong)';
+}
+
+const PILL: Record<SessionStatus, [string, string, boolean]> = {
+  waiting: ['pill--need', 'Waiting on you', true],
+  working: ['pill--work', 'Working', true],
+  done: ['pill--done', 'Done', false],
+  failed: ['pill--fail', 'Failed', false],
+  starting: ['pill--work', 'Starting', true],
+  ended: ['pill--stop', 'Ended', false],
+};
+
+export function Pill({ status, extra }: { status: SessionStatus; extra?: string }) {
+  const [cls, label, pulse] = PILL[status];
+  return (
+    <span className={`pill ${cls}`}>
+      {pulse && <span className="dot dot--pulse" style={{ background: 'currentColor' }} />}
+      {label}
+      {extra ? <span className="num"> {extra}</span> : null}
+    </span>
   );
 }

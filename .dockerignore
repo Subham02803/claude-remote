@@ -1,0 +1,22 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+.env.local
+data
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store
+.vite
+design
+docs
+# Tests are for CI and the dev machine, not the runtime image.
+**/*.test.ts
+**/test
+**/__tests__
+Dockerfile
+.dockerignore
+docker-compose.yml

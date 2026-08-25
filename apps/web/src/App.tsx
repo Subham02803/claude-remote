@@ -1,51 +1,34 @@
-import type { HealthDetail } from '@claude-remote/shared';
-import { useCallback, useEffect, useState } from 'react';
-import { api } from './api.js';
-import { Brand, Problem } from './components/Bits.js';
-import { Home } from './screens/Home.js';
+import { useEffect, useState } from 'react';
+import { SessionView } from './screens/SessionView.js';
+import { Workspace } from './screens/Workspace.js';
+
+/** The session id in the URL, or null for the overview. */
+function readRoute(): string | null {
+  const m = window.location.pathname.match(/^\/terminal\/([A-Za-z0-9_-]+)$/);
+  return m ? (m[1] ?? null) : null;
+}
 
 export function App() {
-  const [detail, setDetail] = useState<HealthDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(readRoute);
 
-  const refresh = useCallback(async () => {
-    try {
-      setDetail(await api.healthDetail());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cannot reach the server.');
-    }
+  // Real URLs, so the back button works and a session can be bookmarked or
+  // sent to another device — which is most of what device handoff needs.
+  useEffect(() => {
+    const onPop = () => setSessionId(readRoute());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  if (error) {
-    return (
-      <div className="home">
-        <div className="card">
-          <Brand />
-          <h1>Cannot reach the server</h1>
-          <Problem>{error}</Problem>
-          <p className="note">
-            Start it with <code>pnpm dev</code> from the repo root, then reload.
-          </p>
-        </div>
-      </div>
-    );
+  function open(id: string) {
+    window.history.pushState({}, '', `/terminal/${id}`);
+    setSessionId(id);
   }
 
-  if (!detail) {
-    return (
-      <div className="home">
-        <div className="card">
-          <Brand />
-          <p className="note">Checking&hellip;</p>
-        </div>
-      </div>
-    );
+  function back() {
+    window.history.pushState({}, '', '/');
+    setSessionId(null);
   }
 
-  return <Home detail={detail} />;
+  if (sessionId) return <SessionView id={sessionId} onBack={back} />;
+  return <Workspace onOpen={open} />;
 }
