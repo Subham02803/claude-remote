@@ -48,8 +48,11 @@ export function Terminal({ sessionId }: { sessionId: string }) {
         cursor: '#F2A93B',
         selectionBackground: 'rgba(242,169,59,0.25)',
       },
-      // tmux keeps the real scrollback; this is only what the browser holds.
-      scrollback: 5000,
+      // Zero on purpose. tmux owns scrolling (mouse is enabled on attach), and
+      // a local buffer here is not a smaller copy of that history — it is the
+      // torn remains of full-screen repaints, which is what made scrolling up
+      // show pieces of older frames. None is better than wrong.
+      scrollback: 0,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

@@ -52,6 +52,18 @@ export function isLive(s: { status: SessionStatus }): boolean {
 }
 
 /**
+ * True when there is a turn to interrupt.
+ *
+ * Not the same as `isLive`. A session sitting at the prompt after finishing is
+ * very much alive — you can still talk to it — but there is nothing to stop,
+ * and sending an interrupt anyway is not harmless: Ctrl-C at an idle Claude
+ * Code prompt clears whatever you had typed into it.
+ */
+export function isStoppable(s: { status: SessionStatus }): boolean {
+  return s.status === 'starting' || s.status === 'working' || s.status === 'waiting';
+}
+
+/**
  * A decision Claude is blocked on, as reported by the PermissionRequest hook.
  *
  * The hook tells us *that* a decision is needed and what it is about; the
@@ -164,4 +176,44 @@ export interface DirListing {
   entries: DirEntry[];
   /** True when the directory held more than the cap and was cut. */
   truncated: boolean;
+}
+
+/* ------------------------------ conversation ----------------------------- */
+
+/**
+ * One piece of a message.
+ *
+ * Modelled on what Claude Code actually writes to its transcript rather than on
+ * what a chat UI wishes it had: an assistant turn is a sequence of thinking,
+ * prose and tool calls, and flattening that to a single string would throw away
+ * the part you most want to skim.
+ */
+export type ChatBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'thinking'; text: string }
+  | {
+      kind: 'tool';
+      /** 'Read', 'Bash', 'Edit', … */
+      name: string;
+      /** One line describing the call — a path, a command, a query. */
+      summary: string;
+      /** What came back, capped. Null while the call is still open. */
+      result: string | null;
+      /** False when the tool reported an error. */
+      ok: boolean;
+      /** True when `result` was cut to fit. */
+      truncated: boolean;
+    };
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  at: string;
+  blocks: ChatBlock[];
+}
+
+export interface Transcript {
+  messages: ChatMessage[];
+  /** False when Claude Code has not filed a transcript for this session yet. */
+  found: boolean;
 }

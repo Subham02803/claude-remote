@@ -10,7 +10,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev": "./scripts/dev.sh",
+    "dev:docker": "./scripts/dev.sh --docker",
+    "dev:logs": "./scripts/dev.sh --logs",
+    "dev:clean": "./scripts/dev.sh --clean",
     "dev:server": "pnpm --filter @claude-remote/server dev",
     "dev:web": "pnpm --filter @claude-remote/web dev",
     "typecheck": "pnpm -r typecheck",

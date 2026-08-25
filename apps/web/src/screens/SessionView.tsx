@@ -1,14 +1,15 @@
 import type { Agent, FileEdit } from '@claude-remote/shared';
-import { type Session as SessionData, isLive } from '@claude-remote/shared';
+import { type Session as SessionData, isLive, isStoppable } from '@claude-remote/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Back, Check, Pill, Problem, Warn } from '../components/Bits.js';
 import { Rail, Topbar } from '../components/Shell.js';
+import { Chat } from './Chat.js';
 import { Diff } from './Diff.js';
 import { Files } from './Files.js';
 import { Terminal } from './Terminal.js';
 
-type Tab = 'terminal' | 'waiting' | 'agents' | 'changes' | 'files';
+type Tab = 'chat' | 'terminal' | 'waiting' | 'agents' | 'changes' | 'files';
 
 /**
  * One session, with the prototype's tabs.
@@ -17,7 +18,10 @@ type Tab = 'terminal' | 'waiting' | 'agents' | 'changes' | 'files';
  * detach and reattach, redrawing the screen every time you glanced at Changes.
  */
 export function SessionView({ id, onBack }: { id: string; onBack: () => void }) {
-  const [tab, setTab] = useState<Tab>('terminal');
+  // Chat is the default: it is the readable view, and the only one that can
+  // show the whole conversation. The terminal is one tab over for when only a
+  // real TUI will do.
+  const [tab, setTab] = useState<Tab>('chat');
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [projects, setProjects] = useState<
     { id: string; name: string; path: string; sessions: number }[]
@@ -116,7 +120,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     try {
       await api.decide(id, answer);
       await refresh();
-      setTab('terminal');
+      setTab('chat');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send that answer.');
     } finally {
@@ -173,10 +177,10 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
             </div>
             <span className="spacer" />
             {session && <Pill status={session.status} />}
-            {/* Offered only when there is something to interrupt. An ended
-                session has nothing to stop, and a button that 500s is worse
-                than no button. */}
-            {session && isLive(session) && (
+            {/* Offered only when there is something to interrupt. A session
+                idling at its prompt is still alive, but stopping it would do
+                nothing except clear whatever is typed into Claude's input. */}
+            {session && isStoppable(session) && (
               <button
                 type="button"
                 className="btn btn--deny btn--sm"
@@ -201,6 +205,15 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
           )}
 
           <div className="tabs" role="tablist" aria-label="Session views">
+            <button
+              type="button"
+              className="tab"
+              role="tab"
+              aria-selected={tab === 'chat'}
+              onClick={() => setTab('chat')}
+            >
+              Chat
+            </button>
             <button
               type="button"
               className="tab"
@@ -254,6 +267,12 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               Preview
             </button>
           </div>
+
+          {tab === 'chat' && (
+            <div className="pane pane--chat" role="tabpanel" aria-label="Chat">
+              <Chat sessionId={id} live={Boolean(session && isLive(session))} />
+            </div>
+          )}
 
           {/* Kept mounted, only hidden: unmounting would detach the terminal. */}
           <div

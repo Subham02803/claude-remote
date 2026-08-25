@@ -6,6 +6,7 @@ import type {
   HealthDetail,
   Project,
   Session,
+  Transcript,
 } from '@claude-remote/shared';
 
 /** An error carrying the message the server chose, so screens can show it as-is. */
@@ -63,6 +64,8 @@ export const api = {
     request<{ files: { path: string; edits: number; tool: string }[] }>(
       `/api/sessions/${encodeURIComponent(id)}/changes`,
     ),
+  transcript: (id: string) =>
+    request<Transcript>(`/api/sessions/${encodeURIComponent(id)}/transcript`),
   agents: (id: string) =>
     request<{ agents: Agent[] }>(`/api/sessions/${encodeURIComponent(id)}/agents`),
   /** What a session changed in one file — the edits, not the file. */

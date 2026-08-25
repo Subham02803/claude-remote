@@ -95,6 +95,22 @@ export async function newSession(input: {
   ]);
 }
 
+/**
+ * Turns on mouse reporting for one session.
+ *
+ * Without it the wheel never reaches tmux, and the browser scrolls a local
+ * buffer that can only ever hold torn pieces of earlier repaints. Idempotent,
+ * and scoped to a session we own.
+ */
+export async function enableMouse(name: string): Promise<void> {
+  try {
+    await run('tmux', ['set-option', '-t', name, 'mouse', 'on']);
+  } catch {
+    // Not worth failing an attach over: the terminal still works, it just
+    // scrolls badly.
+  }
+}
+
 export async function killSession(name: string): Promise<void> {
   try {
     await run('tmux', ['kill-session', '-t', `=${name}`]);

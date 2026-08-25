@@ -1,6 +1,6 @@
 import { spawn } from 'node-pty';
 import type { IPty } from 'node-pty';
-import { hasSession, sessionName } from './tmux.js';
+import { enableMouse, hasSession, sessionName } from './tmux.js';
 
 /**
  * One browser's view of one tmux session.
@@ -61,6 +61,19 @@ export async function openBridge(input: {
   if (!(await hasSession(name))) {
     throw new NoSuchSession(`No tmux session for "${input.id}".`);
   }
+
+  // Hand scrolling to tmux.
+  //
+  // With mouse off, tmux never turns on mouse reporting, so the browser's
+  // terminal treats the wheel as its own and scrolls a local buffer holding
+  // fragments of previous full-screen repaints — you scroll up and see torn
+  // pieces of older frames rather than the conversation. With it on, the wheel
+  // reaches tmux, which scrolls the pane's real history instead.
+  //
+  // Set on attach rather than at creation so sessions started before this
+  // existed are fixed the first time they are opened. Scoped with -t: this is
+  // ours to set, the user's global tmux config is not.
+  await enableMouse(name);
 
   const pty = spawn('tmux', ['attach', '-t', `=${name}`], {
     name: 'xterm-256color',

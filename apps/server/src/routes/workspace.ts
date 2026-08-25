@@ -1,4 +1,4 @@
-import { type Project, isLive } from '@claude-remote/shared';
+import { type Project, type SessionStatus, isLive, isStoppable } from '@claude-remote/shared';
 import type { Database } from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -13,6 +13,7 @@ import {
   readProjectFile,
 } from '../session/files.js';
 import * as sessions from '../session/store.js';
+import { readTranscript } from '../session/transcript.js';
 import { ANSWER, sendKeys, sendText } from '../terminal/keys.js';
 import { hasSession, sessionName } from '../terminal/tmux.js';
 
@@ -183,6 +184,17 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
         .code(409)
         .send({ error: 'session_ended', message: 'That session has already ended.' });
     }
+    // Nothing running means nothing to interrupt, and the interrupt is not a
+    // no-op: Ctrl-C at an idle Claude Code prompt clears the text sitting in
+    // its input. Refusing is the difference between a button that does nothing
+    // and a button that quietly deletes what you were about to send.
+    const status = (row.ended_at ? 'ended' : (row.status as SessionStatus)) ?? 'starting';
+    if (!isStoppable({ status })) {
+      return reply.code(409).send({
+        error: 'not_working',
+        message: 'That session is not doing anything right now.',
+      });
+    }
     try {
       await sendKeys(req.params.id, ['C-c']);
     } catch (err) {
@@ -191,8 +203,12 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
         .code(502)
         .send({ error: 'stop_failed', message: 'Could not reach that session.' });
     }
+    // Set the status here rather than waiting for a hook to say so. Claude
+    // Code fires `Stop` when a turn *finishes*; an interrupted turn never
+    // does, so a session stopped this way would otherwise read as working for
+    // as long as it stayed open. We caused this state, so we can record it.
     db.prepare(
-      "UPDATE sessions SET doing = 'stopped by you', status_at = datetime('now') WHERE id = ?",
+      "UPDATE sessions SET status = 'done', doing = 'stopped by you', status_at = datetime('now') WHERE id = ?",
     ).run(req.params.id);
     audit(db, { event: 'session.stop', actor: deviceOf(req), detail: { session: req.params.id } });
     return { ok: true };
@@ -205,6 +221,21 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
       return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
     }
     return { files: readChanges(db, req.params.id) };
+  });
+
+  /**
+   * The conversation itself, from Claude Code's transcript.
+   *
+   * Not from the terminal. tmux holds a fixed number of lines and a TUI
+   * repaints over itself, so the terminal can never show the start of a long
+   * conversation — the transcript always can.
+   */
+  app.get<{ Params: { id: string } }>('/api/sessions/:id/transcript', async (req, reply) => {
+    const row = sessions.get(db, req.params.id);
+    if (!row) {
+      return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+    }
+    return readTranscript(db, config, req.params.id);
   });
 
   /** Who is working on this session — the main agent and its subagents. */
