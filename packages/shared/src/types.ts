@@ -84,3 +84,84 @@ export interface Session {
   /** Set only while genuinely blocked. Drives the approve/deny buttons. */
   ask: Ask | null;
 }
+
+/* -------------------------------- agents --------------------------------- */
+
+/**
+ * One agent working on a session: the main one, or a subagent it spawned.
+ *
+ * Built by pairing `Task` hook events, never by reading names off the terminal.
+ * A subagent has no status of its own beyond "still open" or "finished" —
+ * that is genuinely all the hooks report, and inventing more would break P6.
+ */
+export interface Agent {
+  /** 'main', or the subagent type Claude was asked for ('Explore', …). */
+  name: string;
+  sub: boolean;
+  status: 'working' | 'done';
+  startedAt: string;
+  endedAt: string | null;
+  /** The one-line description the Task was given, when it had one. */
+  doing: string | null;
+}
+
+/* ------------------------------- previews -------------------------------- */
+
+/** How a previewable file should be shown. */
+export type FileKind = 'md' | 'html' | 'text';
+
+/**
+ * One file read back for previewing, always as text.
+ *
+ * The server never returns this as `text/html`: an HTML prototype reaches the
+ * page as a string and is only ever rendered inside a sandboxed frame.
+ */
+export interface FilePreview {
+  /** Relative to the project root — the absolute path is not the browser's business. */
+  path: string;
+  kind: FileKind;
+  text: string;
+  bytes: number;
+}
+
+/* -------------------------------- edits ---------------------------------- */
+
+/**
+ * One change an agent made to a file, as the hook reported it.
+ *
+ * This is the *change*, not the file. `Edit` gives both sides; `Write` gives
+ * only what was written, because there was no "before" it can honestly show —
+ * the tool does not send one.
+ */
+export interface FileEdit {
+  at: string;
+  tool: string;
+  /** What was replaced. Null for a Write, which reports no prior content. */
+  before: string | null;
+  /** What replaced it, or the whole content for a Write. */
+  after: string | null;
+  /** True when either side was cut to keep the response readable. */
+  truncated: boolean;
+}
+
+/* ------------------------------ browsing --------------------------------- */
+
+/** One entry in a project directory listing. */
+export interface DirEntry {
+  name: string;
+  /** Path relative to the project root, for the next request. */
+  path: string;
+  dir: boolean;
+  /** Null for directories. */
+  bytes: number | null;
+  /** How this file would be shown if opened; null when it cannot be. */
+  kind: FileKind | null;
+}
+
+export interface DirListing {
+  /** Relative to the project root; '' is the root itself. */
+  path: string;
+  entries: DirEntry[];
+  /** True when the directory held more than the cap and was cut. */
+  truncated: boolean;
+}

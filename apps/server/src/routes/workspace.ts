@@ -3,8 +3,15 @@ import type { Database } from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Config } from '../config.js';
+import { readAgents } from '../session/agents.js';
 import { audit } from '../session/audit.js';
-import { readChanges } from '../session/changes.js';
+import { readChanges, readEdits } from '../session/changes.js';
+import {
+  NotPreviewable,
+  OutsideProject,
+  listProjectDir,
+  readProjectFile,
+} from '../session/files.js';
 import * as sessions from '../session/store.js';
 import { ANSWER, sendKeys, sendText } from '../terminal/keys.js';
 import { hasSession, sessionName } from '../terminal/tmux.js';
@@ -199,6 +206,127 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
     }
     return { files: readChanges(db, req.params.id) };
   });
+
+  /** Who is working on this session — the main agent and its subagents. */
+  app.get<{ Params: { id: string } }>('/api/sessions/:id/agents', async (req, reply) => {
+    const row = sessions.get(db, req.params.id);
+    if (!row) {
+      return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+    }
+    return { agents: readAgents(db, req.params.id) };
+  });
+
+  /**
+   * What this session changed in one file — the edits themselves, not the file.
+   *
+   * Kept separate from the file endpoint on purpose: they answer different
+   * questions. This one is "what did the agent do"; `/file` is "what does this
+   * look like now". Conflating them is what made Changes show whole files.
+   */
+  app.get<{ Params: { id: string }; Querystring: { path?: string } }>(
+    '/api/sessions/:id/edits',
+    async (req, reply) => {
+      const row = sessions.get(db, req.params.id);
+      if (!row) {
+        return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+      }
+      const path = req.query.path;
+      if (!path) {
+        return reply.code(400).send({ error: 'bad_request', message: 'A path is required.' });
+      }
+      return { edits: readEdits(db, req.params.id, path) };
+    },
+  );
+
+  const fileQuery = z.object({ path: z.string().min(1).max(4096) });
+  const treeQuery = z.object({ path: z.string().max(4096).optional() });
+
+  /**
+   * Browsing a project's files, for the Preview tab.
+   *
+   * Same containment as `/file`, with one difference: the root is a legal
+   * answer here, because browsing has to start somewhere.
+   */
+  app.get<{ Params: { id: string }; Querystring: { path?: string } }>(
+    '/api/projects/:id/tree',
+    async (req, reply) => {
+      const project = config.projects.find((p) => p.id === req.params.id);
+      if (!project) {
+        return reply.code(404).send({ error: 'no_such_project', message: 'No such project.' });
+      }
+      const parsed = treeQuery.safeParse(req.query);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'bad_request', message: 'That path is not usable.' });
+      }
+      try {
+        return listProjectDir(project.path, parsed.data.path ?? '');
+      } catch (err) {
+        if (err instanceof OutsideProject) {
+          req.log.warn({ project: project.id, path: parsed.data.path }, 'refused a path');
+          return reply.code(403).send({ error: 'outside_project', message: err.message });
+        }
+        if (err instanceof NotPreviewable) {
+          return reply.code(415).send({ error: 'not_a_directory', message: err.message });
+        }
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply
+            .code(404)
+            .send({ error: 'no_such_dir', message: 'That folder is not there any more.' });
+        }
+        req.log.error({ err }, 'could not list a directory');
+        return reply
+          .code(500)
+          .send({ error: 'list_failed', message: 'Could not read that folder.' });
+      }
+    },
+  );
+
+  /**
+   * One file from a declared project, as text, for previewing.
+   *
+   * Scoped to a project rather than to a path because that is what makes the
+   * containment check answerable — see `session/files.ts`. Three deliberate
+   * choices about how it replies:
+   *
+   * - Always JSON, never `text/html`. A prototype this endpoint returns must
+   *   never be something a browser can be talked into rendering top-level.
+   * - `nosniff`, so the above cannot be undone by content sniffing.
+   * - A refused path is 403 with the same message whether it escaped the
+   *   project or simply is not there, so this is not a probe for what exists
+   *   elsewhere on the disk.
+   */
+  app.get<{ Params: { id: string }; Querystring: { path?: string } }>(
+    '/api/projects/:id/file',
+    async (req, reply) => {
+      const project = config.projects.find((p) => p.id === req.params.id);
+      if (!project) {
+        return reply.code(404).send({ error: 'no_such_project', message: 'No such project.' });
+      }
+      const parsed = fileQuery.safeParse(req.query);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'bad_request', message: 'A path is required.' });
+      }
+      reply.header('x-content-type-options', 'nosniff');
+      try {
+        return reply.send(readProjectFile(project.path, parsed.data.path));
+      } catch (err) {
+        if (err instanceof OutsideProject) {
+          req.log.warn({ project: project.id, path: parsed.data.path }, 'refused a path');
+          return reply.code(403).send({ error: 'outside_project', message: err.message });
+        }
+        if (err instanceof NotPreviewable) {
+          return reply.code(415).send({ error: 'not_previewable', message: err.message });
+        }
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply
+            .code(404)
+            .send({ error: 'no_such_file', message: 'That file is not there any more.' });
+        }
+        req.log.error({ err }, 'could not read a file for preview');
+        return reply.code(500).send({ error: 'read_failed', message: 'Could not read that file.' });
+      }
+    },
+  );
 
   app.delete<{ Params: { id: string } }>('/api/sessions/:id', async (req, reply) => {
     const row = sessions.get(db, req.params.id);

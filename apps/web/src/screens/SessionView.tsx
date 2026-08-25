@@ -1,11 +1,14 @@
+import type { Agent, FileEdit } from '@claude-remote/shared';
 import { type Session as SessionData, isLive } from '@claude-remote/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Back, Check, Pill, Problem, Warn } from '../components/Bits.js';
 import { Rail, Topbar } from '../components/Shell.js';
+import { Diff } from './Diff.js';
+import { Files } from './Files.js';
 import { Terminal } from './Terminal.js';
 
-type Tab = 'terminal' | 'waiting' | 'changes';
+type Tab = 'terminal' | 'waiting' | 'agents' | 'changes' | 'files';
 
 /**
  * One session, with the prototype's tabs.
@@ -20,6 +23,10 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     { id: string; name: string; path: string; sessions: number }[]
   >([]);
   const [files, setFiles] = useState<{ path: string; edits: number; tool: string }[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [edits, setEdits] = useState<FileEdit[] | null>(null);
+  const [editsError, setEditsError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -45,8 +52,48 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     if (tab === 'changes') void api.changes(id).then((r) => setFiles(r.files));
   }, [tab, id]);
 
+  /* Agents move while you watch, so this one keeps polling — but only while
+     the tab is open, because nobody needs a request every three seconds for a
+     panel they are not looking at. */
+  useEffect(() => {
+    if (tab !== 'agents') return;
+    const load = () =>
+      void api
+        .agents(id)
+        .then((r) => setAgents(r.agents))
+        .catch(() => {
+          /* the topbar already says when the server is unreachable */
+        });
+    load();
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [tab, id]);
+
   const session = sessions.find((s) => s.id === id);
   const project = projects.find((p) => p.id === session?.projectId);
+
+  /* Opening a file in Changes fetches what this session did to it — the edits,
+     not the file. Closing drops them, so a stale diff can never be shown under
+     a different file's name. */
+  useEffect(() => {
+    if (!openFile) return;
+    let live = true;
+    setEdits(null);
+    setEditsError(null);
+    api
+      .edits(id, openFile)
+      .then((r) => {
+        if (live) setEdits(r.edits);
+      })
+      .catch((err: unknown) => {
+        if (live) {
+          setEditsError(err instanceof Error ? err.message : 'Could not read those changes.');
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [openFile, id]);
 
   /** Interrupts the run. Says so either way — silence reads as "broken". */
   async function stop() {
@@ -78,6 +125,9 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   }
 
   const ask = session?.ask ?? null;
+  /* Subagents only: the main agent is always "working" while the session is,
+     and counting it would make the badge say 1 for every idle session. */
+  const working = agents.filter((a) => a.sub && a.status === 'working').length;
 
   return (
     <div className="app">
@@ -167,8 +217,22 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
               aria-selected={tab === 'waiting'}
               onClick={() => setTab('waiting')}
             >
-              Waiting for you
+              {/* Two labels, one shown at a time by CSS. Five tabs at 414px do
+                  not fit "Waiting for you", and the prototype has always
+                  shortened it on a phone. */}
+              <span className="tab__long">Waiting for you</span>
+              <span className="tab__short">Waiting</span>
               {ask && <span className="tab__badge tab__badge--need">1</span>}
+            </button>
+            <button
+              type="button"
+              className="tab"
+              role="tab"
+              aria-selected={tab === 'agents'}
+              onClick={() => setTab('agents')}
+            >
+              Agents
+              {working > 0 && <span className="tab__badge tab__badge--work">{working}</span>}
             </button>
             <button
               type="button"
@@ -179,6 +243,15 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
             >
               Changes
               {files.length > 0 && <span className="tab__badge">{files.length}</span>}
+            </button>
+            <button
+              type="button"
+              className="tab"
+              role="tab"
+              aria-selected={tab === 'files'}
+              onClick={() => setTab('files')}
+            >
+              Preview
             </button>
           </div>
 
@@ -265,13 +338,62 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
             </div>
           )}
 
+          {tab === 'agents' && (
+            <div className="pane" role="tabpanel" aria-label="Agents">
+              <div className="row" style={{ gap: 10 }}>
+                <span className="label">Who is working on this</span>
+                <span className="spacer" />
+                <span className="mono num" style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
+                  {working === 0 ? 'no subagents running' : `${working} running`}
+                </span>
+              </div>
+              <div className="col" style={{ gap: 5, maxWidth: 720 }}>
+                {agents.map((a, i) => (
+                  <div
+                    className={`agent${a.sub ? ' agent--sub' : ''}`}
+                    key={`${a.name}-${a.startedAt}-${i}`}
+                  >
+                    <span
+                      className={`dot${a.status === 'working' ? ' dot--pulse' : ''}`}
+                      style={{
+                        background: a.status === 'working' ? 'var(--work)' : 'var(--done)',
+                      }}
+                    />
+                    <span className="agent__name">{a.name}</span>
+                    <span className="agent__doing truncate">{a.doing ?? '—'}</span>
+                    <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
+                      {a.status === 'working' ? 'working' : 'done'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {/* Said plainly rather than left to be inferred from an empty
+                  list: subagents are only visible because Claude Code reports
+                  Task through a hook, and a run with none is the normal case. */}
+              <span
+                style={{
+                  fontSize: 12.5,
+                  color: 'var(--ink-4)',
+                  maxWidth: '52ch',
+                  lineHeight: 1.5,
+                }}
+              >
+                Subagents appear when Claude delegates with the Task tool, and are paired from its
+                own hooks — never read off the terminal. A session that does its own work shows only
+                main.
+              </span>
+            </div>
+          )}
+
+          {tab === 'files' && session?.projectId && <Files projectId={session.projectId} />}
+
           {tab === 'changes' && (
             <div className="pane" role="tabpanel" aria-label="Changes">
               <div className="row" style={{ gap: 10 }}>
                 <span className="label">Files this session touched</span>
                 <span className="spacer" />
                 <span className="mono num" style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
-                  {files.length} file{files.length === 1 ? '' : 's'}
+                  {files.length} file{files.length === 1 ? '' : 's'} · tap to see the edits
                 </span>
               </div>
               {files.length === 0 && (
@@ -290,22 +412,59 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
                   </span>
                 </div>
               )}
-              <div className="col" style={{ gap: 5, maxWidth: 720 }}>
-                {files.map((f) => (
-                  <div className="file-row" key={f.path}>
-                    <span className="mono truncate" style={{ fontSize: 12, flexGrow: 1 }}>
-                      {f.path}
-                    </span>
-                    <span className="mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                      {f.tool}
-                    </span>
-                    {f.edits > 1 && (
-                      <span className="mono num" style={{ fontSize: 11, color: 'var(--work)' }}>
-                        ×{f.edits}
-                      </span>
-                    )}
-                  </div>
-                ))}
+              <div className="col" style={{ gap: 5, maxWidth: 760 }}>
+                {files.map((f) => {
+                  const open = openFile === f.path;
+                  return (
+                    <div className="file" key={f.path}>
+                      <button
+                        type="button"
+                        className="file__head"
+                        aria-expanded={open}
+                        onClick={() => setOpenFile(open ? null : f.path)}
+                      >
+                        <span className="mono truncate" style={{ fontSize: 12, flexGrow: 1 }}>
+                          {f.path}
+                        </span>
+                        <span className="mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                          {f.tool}
+                        </span>
+                        {f.edits > 1 && (
+                          <span className="mono num" style={{ fontSize: 11, color: 'var(--work)' }}>
+                            ×{f.edits}
+                          </span>
+                        )}
+                      </button>
+                      {open && (
+                        <>
+                          <div className="pv__bar">
+                            <span className="pv__note">
+                              {edits
+                                ? `${edits.length} edit${edits.length === 1 ? '' : 's'} in this session`
+                                : editsError
+                                  ? 'could not be shown'
+                                  : 'reading…'}
+                            </span>
+                            <span className="spacer" />
+                            <button
+                              type="button"
+                              className="btn btn--line btn--sm"
+                              onClick={() => setOpenFile(null)}
+                            >
+                              Collapse
+                            </button>
+                          </div>
+                          {editsError && (
+                            <div style={{ padding: '12px 14px' }}>
+                              <Problem>{editsError}</Problem>
+                            </div>
+                          )}
+                          {edits && <Diff edits={edits} />}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

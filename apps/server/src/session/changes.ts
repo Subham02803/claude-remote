@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import type { FileEdit } from '@claude-remote/shared';
 import type { Database } from 'better-sqlite3';
 
 export interface ChangedFile {
@@ -73,4 +74,75 @@ export function readJsonl(path: string): unknown[] {
         return [];
       }
     });
+}
+
+/**
+ * A single edit is not allowed to be enormous. A Write of a generated file can
+ * be tens of thousands of lines, and nobody reviews that on a phone — the
+ * Preview tab is where the whole file lives.
+ */
+const MAX_EDIT_LINES = 400;
+
+function cut(text: string): { text: string; truncated: boolean } {
+  const lines = text.split('\n');
+  if (lines.length <= MAX_EDIT_LINES) return { text, truncated: false };
+  return { text: `${lines.slice(0, MAX_EDIT_LINES).join('\n')}\n`, truncated: true };
+}
+
+/**
+ * What an agent actually changed in one file.
+ *
+ * Read straight from the tool input the hook forwarded, which is the honest
+ * source: it is what Claude asked for, not a reconstruction from the file on
+ * disk. Diffing against disk would be worse — the file has moved on since,
+ * possibly several edits later, and would show changes this session never made.
+ *
+ * `Edit` carries both sides. `Write` carries only `content`, so `before` is
+ * null rather than invented; the UI says "written" instead of showing a
+ * one-sided diff as though something had been replaced.
+ */
+export function readEdits(db: Database, sessionId: string, path: string): FileEdit[] {
+  const rows = db
+    .prepare(
+      `SELECT at, tool, detail FROM session_events
+       WHERE session_id = ? AND event = 'PostToolUse'
+         AND tool IN ('Write','Edit','Update','NotebookEdit')
+       ORDER BY id ASC`,
+    )
+    .all(sessionId) as { at: string; tool: string; detail: string | null }[];
+
+  const out: FileEdit[] = [];
+  for (const row of rows) {
+    if (!row.detail) continue;
+    let input: Record<string, unknown> | undefined;
+    try {
+      input = (JSON.parse(row.detail) as { input?: Record<string, unknown> }).input;
+    } catch {
+      continue;
+    }
+    if (!input) continue;
+    const at = input.file_path ?? input.path;
+    if (at !== path) continue;
+
+    const before = typeof input.old_string === 'string' ? input.old_string : null;
+    const rawAfter =
+      typeof input.new_string === 'string'
+        ? input.new_string
+        : typeof input.content === 'string'
+          ? input.content
+          : typeof input.new_source === 'string'
+            ? input.new_source
+            : null;
+
+    const a = before === null ? null : cut(before);
+    const b = rawAfter === null ? null : cut(rawAfter);
+    out.push({
+      at: row.at,
+      tool: row.tool,
+      before: a?.text ?? null,
+      after: b?.text ?? null,
+      truncated: Boolean(a?.truncated || b?.truncated),
+    });
+  }
+  return out;
 }

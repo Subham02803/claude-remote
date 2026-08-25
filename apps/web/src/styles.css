@@ -545,6 +545,9 @@ p {
   color: var(--ink);
   border-bottom-color: var(--need);
 }
+.tab__short {
+  display: none;
+}
 .tab__badge {
   font-family: var(--mono);
   font-size: 10px;
@@ -1116,6 +1119,343 @@ body {
   text-align: center;
 }
 
+/* ---------------------------- file preview -------------------------------
+   A diff answers "what changed"; a preview answers "does it look right",
+   which is the only one of the two you can settle from a phone. */
+.file {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.file__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  min-height: 44px;
+}
+.file__head:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+.kind {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--raised2);
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.pv__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+  flex-wrap: wrap;
+}
+.pv__note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+.pv {
+  border-top: 1px solid var(--line);
+  background: var(--term, #0a0b0e);
+  max-height: 440px;
+  overflow: auto;
+  padding: 20px 22px;
+}
+.pv__frame {
+  width: 100%;
+  height: 390px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  display: block;
+}
+.pv--full {
+  max-height: none;
+  height: 100%;
+  padding: 0;
+  border-top: 0;
+}
+.pv__frame--full {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+.pv__sheet {
+  /* A <dialog> in the top layer: it still needs to be told to fill the screen,
+     and to drop the default centred box and border. */
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  padding: 0;
+  border: 0;
+  background: var(--app);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+}
+.pv__sheet::backdrop {
+  background: rgba(8, 9, 12, 0.7);
+}
+.pv__sheet-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}
+.pv__sheet-body {
+  flex-grow: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.pv__sheet-body .pv--full {
+  padding: 0;
+}
+.pv__sheet-body .md {
+  padding: 24px;
+  max-width: 74ch;
+  margin: 0 auto;
+}
+.pv__sheet-body .pv__code {
+  padding: 20px;
+}
+.pv__code {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+  white-space: pre;
+}
+
+/* rendered markdown */
+.md {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  max-width: 62ch;
+}
+.md__h1 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.md__h2 {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-top: 4px;
+}
+.md__p {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink-3);
+}
+.md__li {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--ink-3);
+  padding-left: 18px;
+  position: relative;
+}
+.md__li::before {
+  content: "\2014";
+  position: absolute;
+  left: 0;
+  color: var(--ink-4);
+}
+.md__quote {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-4);
+}
+.md__code {
+  background: var(--app);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+.md__hr {
+  height: 1px;
+  background: var(--line);
+}
+.md__inline {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--raised2);
+  color: var(--ink-2);
+}
+.md strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* --------------------------------- diff ----------------------------------
+   Changes shows what the agent did, not what the file now says. The two sides
+   come from the hook payload, so this is a rendering, not a computed diff. */
+.diff__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+}
+.diff {
+  border-top: 1px solid var(--line);
+  background: var(--term, #0a0b0e);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  overflow-x: auto;
+  padding: 8px 0;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.diff__line {
+  display: flex;
+  gap: 10px;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff__n {
+  color: var(--ink-4);
+  width: 30px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.diff__s {
+  flex-grow: 1;
+}
+.diff__line--add {
+  background: rgba(79, 191, 135, 0.09);
+}
+.diff__line--add .diff__s {
+  color: var(--done);
+}
+.diff__line--del {
+  background: rgba(229, 103, 94, 0.09);
+}
+.diff__line--del .diff__s {
+  color: var(--fail);
+}
+.diff__more {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--ink-4);
+}
+
+/* ------------------------------ file browser ------------------------------ */
+.crumb {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.crumb:hover {
+  background: var(--raised2);
+  color: var(--ink);
+}
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink-3);
+  text-align: left;
+  min-height: 40px;
+}
+.entry:hover {
+  background: var(--surface);
+  border-color: var(--line);
+}
+.entry--open {
+  background: var(--surface);
+  border-color: var(--line);
+}
+.entry__icon {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--ink-4);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ------------------------------- agents ---------------------------------- */
+.agent {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.agent--sub {
+  margin-left: 18px;
+}
+.agent__name {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+.agent__doing {
+  font-size: 12.5px;
+  color: var(--ink-4);
+  flex-grow: 1;
+  min-width: 0;
+}
+
 @media (max-width: 720px) {
   .rail {
     display: none;
@@ -1129,9 +1469,31 @@ body {
   .tab {
     flex: 1 1 0;
     min-width: 0;
-    padding: 12px 4px;
-    font-size: 12.5px;
-    gap: 5px;
+    padding: 12px 3px;
+    font-size: 12px;
+    gap: 4px;
     justify-content: center;
+  }
+  .tab__long {
+    display: none;
+  }
+  .tab__short {
+    display: inline;
+  }
+  .pv {
+    max-height: 320px;
+    padding: 15px 16px;
+  }
+  .pv__frame {
+    height: 300px;
+  }
+  .agent--sub {
+    margin-left: 10px;
+  }
+  .pv__sheet-bar .pv__note {
+    display: none;
+  }
+  .pv__sheet-body .md {
+    padding: 16px;
   }
 }

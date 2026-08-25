@@ -418,6 +418,146 @@ delivery itself is proven — the same `sendKeys` path puts `1` and Escape into
 the terminal visibly in the step 7 tests — but the interrupt-mid-thought case is
 still unproven.
 
+## Step 10 — Agents, changes, and reading the project &mdash; **done**
+
+Three gaps found by using the thing. All the same shape: work happened, and the
+browser could not show it.
+
+### Agents
+
+The prototype has had an Agents tab since the first draft; the app never grew
+one. A session that delegates looks idle from outside — the terminal scrolls,
+the status says "working", and there is no way to tell whether that is one agent
+or four.
+
+Built from `PreToolUse`/`PostToolUse` on the `Task` tool, paired in
+`session/agents.ts`. **No new hooks were needed**: those events were already in
+`session_events`, unread.
+
+The pairing is the only interesting part. Two Tasks can be in flight at once, so
+a finish closes the earliest still-open agent of the same type **and**
+description. When two identical Tasks run together that can attribute the wrong
+end time to one of a matching pair — it never invents or drops an agent, which
+is the property worth keeping. `agents.test.ts` pins it, including a
+`PostToolUse` with nothing open, which is ignored rather than turned into a
+phantom.
+
+Subagents only in the tab badge: the main agent is "working" whenever the
+session is, so counting it would put a `1` on every idle session.
+
+### Changes shows the change, not the file
+
+The first cut of this step opened a file in Changes and showed **the whole
+file**. Wrong tab, wrong question. Changes answers *what did this session do*;
+the file as it stands today is a different question, and often a misleading
+answer — the file has moved on, possibly several edits later, and may contain
+work this session never did.
+
+`readEdits` now reads the tool input the hook already forwarded: `Edit` carries
+`old_string`/`new_string`, `Write` carries `content`. That is the honest source —
+it is what Claude asked for, not a reconstruction from disk.
+
+Two consequences worth stating:
+
+- **`Write` has no "before".** The tool does not send one, so the UI says
+  "whole file written" rather than dressing a one-sided diff up as a
+  replacement of nothing.
+- **A payload can carry neither side.** Said plainly in place, rather than
+  rendered as an empty strip that reads as a broken diff.
+
+Edits are cut at 400 lines. A generated file is not reviewed on a phone, and the
+whole thing is one tab away.
+
+### Preview — the project, not the session
+
+Whole-file reading moved to its own tab, where it belongs: browse the project,
+open anything, `.md` renders and `.html` runs. It shows files no session ever
+touched, which is the point — the scope doc you want to check is rarely the file
+you just changed.
+
+Read-only, and deliberately so. Scope §5.4 rules out a browser IDE; a tree that
+can only be read is a long way from one that can edit, rename or delete.
+
+### Containment
+
+`GET /api/projects/:id/file` and `/tree`, scoped to a project rather than to a
+path, because that is what makes the check answerable. `config.projects` is a
+short declared list, not a filesystem to walk, so "inside a project" is a
+question with an answer.
+
+`session/files.ts` checks it twice, on purpose:
+
+1. **Lexically**, after `resolve` — stops `../../.ssh/id_rsa`.
+2. **After `realpath`** — stops a symlink *inside* the project pointing out of
+   it. The first check cannot see that one; `docs/notes.md` can be a link to
+   anywhere on the disk.
+
+Both spellings of the project root are accepted lexically, which is not
+decoration: on macOS `/var` is a symlink to `/private/var`, and comparing only
+against the realpath'd root refuses paths the hook log legitimately produces.
+Found by a test, not by reasoning.
+
+### Rendering without handing over the app
+
+The part that needed most care, because the server has no sign-in — reaching it
+is what grants access. HTML written by a session, rendered on this origin, could
+drive `/api/sessions`.
+
+Four things, none sufficient alone:
+
+- The endpoint returns **JSON, never `text/html`**, with `nosniff`. There is no
+  URL here a browser can be talked into rendering top-level.
+- Markdown becomes **React elements, never HTML**. No `dangerouslySetInnerHTML`,
+  so a document cannot style or script the page it is read in.
+- HTML goes in an iframe with `allow-scripts` and **without
+  `allow-same-origin`** — the prototype runs as itself, in an opaque origin,
+  with no reach into the parent.
+- The host guard already refuses `Origin: null`, which is what an opaque-origin
+  frame sends. `stream/origin.test.ts` pinned that before this step existed and
+  now covers a second attack it was not written for.
+
+> An earlier sketch called for serving previews from a **separate origin** on
+> its own port. Not needed. The sandbox plus the existing null-origin refusal
+> give the same property without a second listener — and a second port is one
+> more thing to remember to close.
+
+### Full screen
+
+Both preview surfaces open full screen, as a real `<dialog>` with
+`showModal()` rather than a styled div: it lands in the browser's top layer, so
+no z-index can lose a race with it, and Escape is handled natively. Collapse
+closes the pane in place. A 390px frame is not enough to judge a prototype, and
+on a phone it is most of the decision.
+
+### Verified end to end
+
+Against the running server, in a browser:
+
+| | |
+|---|---|
+| Agents on a real session | main only, correctly — that session delegated nothing |
+| Changes on a written file | the written content as a `+` diff, not the file |
+| `docs/01-product-scope.md` in Preview | rendered — headings, bold, italics, quotes |
+| `design/prototype.html` in Preview | ran inside the frame, its own JS working |
+| Full screen | filled the viewport, Escape and Close both closed it |
+| `../../../etc/passwd` | 403 |
+| `~/.ssh/id_rsa` by absolute path | 403 |
+| `tree?path=../..` | 403 |
+| a missing file | 404 |
+| `fsevents.node` | 415, "That file is binary" |
+| a file written to `/tmp` | refused in the UI, said plainly |
+
+### Honest limitations
+
+- Changes is still fed by Write/Edit hooks, so anything Claude writes through
+  **Bash is invisible** here. Step 8 found that; unchanged.
+- A file written **outside every declared project** cannot be previewed —
+  correct, but it means `/tmp` scratch files show a refusal rather than content.
+- `readEdits` filters by exact path string. A file the hook reported under a
+  different spelling than the changes list would not match; both come from the
+  same payload today, so they agree.
+- Both are the declared-projects rule working, not failing.
+
 ## Build order at a glance
 
 | Step | Ends with | Depends on |
@@ -430,6 +570,8 @@ still unproven.
 | 6 | The phone buzzes when blocked | 5, `tailscale serve` |
 | 7 | One-tap approve from a phone | 5, 6 |
 | 8 | The rest of the screens | 4, 5 |
+| 9 | The UI matches the prototype | 8 |
+| 10 | Agents, real diffs, a readable project | 5, 8 |
 
 Steps 4 and 5 are independent of each other and can be done in either order.
 

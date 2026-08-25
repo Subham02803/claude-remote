@@ -1,4 +1,12 @@
-import type { HealthDetail, Project, Session } from '@claude-remote/shared';
+import type {
+  Agent,
+  DirListing,
+  FileEdit,
+  FilePreview,
+  HealthDetail,
+  Project,
+  Session,
+} from '@claude-remote/shared';
 
 /** An error carrying the message the server chose, so screens can show it as-is. */
 export class ApiFailure extends Error {
@@ -54,6 +62,22 @@ export const api = {
   changes: (id: string) =>
     request<{ files: { path: string; edits: number; tool: string }[] }>(
       `/api/sessions/${encodeURIComponent(id)}/changes`,
+    ),
+  agents: (id: string) =>
+    request<{ agents: Agent[] }>(`/api/sessions/${encodeURIComponent(id)}/agents`),
+  /** What a session changed in one file — the edits, not the file. */
+  edits: (id: string, path: string) =>
+    request<{ edits: FileEdit[] }>(
+      `/api/sessions/${encodeURIComponent(id)}/edits?path=${encodeURIComponent(path)}`,
+    ),
+  tree: (projectId: string, path: string) =>
+    request<DirListing>(
+      `/api/projects/${encodeURIComponent(projectId)}/tree?path=${encodeURIComponent(path)}`,
+    ),
+  /** One file from a project, as text. Never rendered by the browser as HTML. */
+  file: (projectId: string, path: string) =>
+    request<FilePreview>(
+      `/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(path)}`,
     ),
   endSession: (id: string) =>
     request<{ ok: true }>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
