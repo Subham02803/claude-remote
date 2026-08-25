@@ -380,6 +380,44 @@ is asserted by CSS but *not* verified at a real narrow viewport — an early che
 was flawed (constraining an element does not trigger a viewport media query),
 and the honest test needs `tailscale serve` and an actual phone.
 
+## Fix — Stop was broken on ended sessions
+
+Reported from the UI: Stop looked live on a session showing **ENDED**, and did
+nothing. Three bugs, one on each side.
+
+**1. The server 500'd.** `sessions.get()` returns the row, and rows are kept
+after a session ends so they can still be read back — so the `404` guard passed,
+and `send-keys` then ran against a tmux session that was not there:
+
+```
+HTTP 500  Command failed: tmux send-keys -t cr-febab67eb9 C-c
+          no server running on /private/tmp/tmux-501/default
+```
+
+A surviving row is not a running session. `/stop` and `/prompt` now check tmux —
+the source of truth — and return **409 `session_ended`**. `/stop` also gained
+the `try/catch` that `/decision` and `/prompt` already had; it was the only one
+of the three without it.
+
+**2. The button was offered when it could do nothing.** Now rendered only while
+the session is live.
+
+**3. The failure was invisible.** `onClick={() => void api.stopSession(id)}`
+swallowed the 500 whole — no error, no confirmation, nothing. Silence reads as
+"broken" even when it works. Stop now reports either way, and says
+**"Interrupted. The session is still open."** on success — which is also the
+sentence that stops anyone thinking Stop ends a session.
+
+**Verified:** 409 on an ended session, 200 on a live one, session survives,
+`doing = stopped by you`, Stop absent on ended sessions and present on live
+ones, green confirmation shown.
+
+**Not cleanly demonstrated:** Ctrl-C landing mid-generation. Claude either
+finished first or backgrounded the command both times I tried. Keystroke
+delivery itself is proven — the same `sendKeys` path puts `1` and Escape into
+the terminal visibly in the step 7 tests — but the interrupt-mid-thought case is
+still unproven.
+
 ## Build order at a glance
 
 | Step | Ends with | Depends on |

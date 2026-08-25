@@ -7,6 +7,7 @@ import { audit } from '../session/audit.js';
 import { readChanges } from '../session/changes.js';
 import * as sessions from '../session/store.js';
 import { ANSWER, sendKeys, sendText } from '../terminal/keys.js';
+import { hasSession, sessionName } from '../terminal/tmux.js';
 
 /** Best guess at which device this is, for UC-8's "started from your phone". */
 function deviceOf(req: FastifyRequest): string {
@@ -135,8 +136,14 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
     if (!parsed.success) {
       return reply.code(400).send({ error: 'bad_request', message: 'A prompt is required.' });
     }
-    if (!sessions.get(db, req.params.id)) {
+    const target = sessions.get(db, req.params.id);
+    if (!target) {
       return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+    }
+    if (target.ended_at || !(await hasSession(sessionName(req.params.id)))) {
+      return reply
+        .code(409)
+        .send({ error: 'session_ended', message: 'That session has already ended.' });
     }
     try {
       await sendText(req.params.id, parsed.data.text);
@@ -157,10 +164,26 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
    * there to carry on with. Ending it for real is DELETE.
    */
   app.post<{ Params: { id: string } }>('/api/sessions/:id/stop', async (req, reply) => {
-    if (!sessions.get(db, req.params.id)) {
+    const row = sessions.get(db, req.params.id);
+    if (!row) {
       return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
     }
-    await sendKeys(req.params.id, ['C-c']);
+    // A row surviving is not the same as the session running: rows are kept so
+    // finished sessions can still be read back. tmux is the source of truth,
+    // and without this check send-keys fails against nothing and 500s.
+    if (row.ended_at || !(await hasSession(sessionName(req.params.id)))) {
+      return reply
+        .code(409)
+        .send({ error: 'session_ended', message: 'That session has already ended.' });
+    }
+    try {
+      await sendKeys(req.params.id, ['C-c']);
+    } catch (err) {
+      req.log.error({ err, id: req.params.id }, 'could not interrupt');
+      return reply
+        .code(502)
+        .send({ error: 'stop_failed', message: 'Could not reach that session.' });
+    }
     db.prepare(
       "UPDATE sessions SET doing = 'stopped by you', status_at = datetime('now') WHERE id = ?",
     ).run(req.params.id);

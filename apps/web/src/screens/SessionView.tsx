@@ -1,4 +1,4 @@
-import type { Session as SessionData } from '@claude-remote/shared';
+import { type Session as SessionData, isLive } from '@claude-remote/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Back, Check, Pill, Problem, Warn } from '../components/Bits.js';
@@ -22,6 +22,7 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const [files, setFiles] = useState<{ path: string; edits: number; tool: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
@@ -46,6 +47,22 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
 
   const session = sessions.find((s) => s.id === id);
   const project = projects.find((p) => p.id === session?.projectId);
+
+  /** Interrupts the run. Says so either way — silence reads as "broken". */
+  async function stop() {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await api.stopSession(id);
+      setNote('Interrupted. The session is still open.');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stop that session.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function decide(answer: 'approve' | 'deny') {
     setBusy(true);
@@ -106,15 +123,32 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
             </div>
             <span className="spacer" />
             {session && <Pill status={session.status} />}
-            <button
-              type="button"
-              className="btn btn--deny btn--sm"
-              onClick={() => void api.stopSession(id)}
-              title="Interrupts what Claude is doing. The session stays open."
-            >
-              Stop
-            </button>
+            {/* Offered only when there is something to interrupt. An ended
+                session has nothing to stop, and a button that 500s is worse
+                than no button. */}
+            {session && isLive(session) && (
+              <button
+                type="button"
+                className="btn btn--deny btn--sm"
+                disabled={busy}
+                onClick={() => void stop()}
+                title="Interrupts what Claude is doing. The session stays open."
+              >
+                {busy ? 'Stopping…' : 'Stop'}
+              </button>
+            )}
           </div>
+
+          {(error || note) && (
+            <div style={{ padding: '10px 20px 0' }} aria-live="polite">
+              {error && <Problem>{error}</Problem>}
+              {note && !error && (
+                <p className="note" style={{ color: 'var(--done)' }}>
+                  {note}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="tabs" role="tablist" aria-label="Session views">
             <button
@@ -162,7 +196,6 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
 
           {tab === 'waiting' && (
             <div className="pane" role="tabpanel" aria-label="Waiting for you">
-              {error && <Problem>{error}</Problem>}
               {!ask && (
                 <div className="nothing">
                   <Check />
