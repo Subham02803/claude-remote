@@ -383,7 +383,12 @@ export function SessionView({
 
           {tab === 'chat' && (
             <div className="pane pane--chat" role="tabpanel" aria-label="Chat">
-              <Chat sessionId={id} live={Boolean(session && isLive(session))} />
+              <Chat
+                sessionId={id}
+                live={Boolean(session && isLive(session))}
+                status={session?.status ?? null}
+                doing={session?.doing ?? null}
+              />
             </div>
           )}
 

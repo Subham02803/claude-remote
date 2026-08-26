@@ -5,22 +5,41 @@
  */
 
 :root {
-  --ground: #08090c;
-  --app: #0e1014;
-  --term: #0a0b0e;
-  --surface: #16191f;
-  --raised: #1c2027;
-  --raised2: #23272f;
-  --line: #2a2f38;
-  --line-strong: #39404b;
-  --ink: #e8eaed;
-  --ink-2: #c9d0da;
-  --ink-3: #a8afba;
-  --ink-4: #6e7681;
+  /* Night, with the blue left in. The greys are not neutral: every one of
+     them carries the same sky hue as the accent, which is what stops a dark
+     UI reading as a black hole with coloured stickers on it. */
+  --ground: #070b12;
+  --app: #0d131d;
+  --term: #070c14;
+  --surface: #141c28;
+  --raised: #1a2331;
+  --raised2: #222d3d;
+  --line: #24303f;
+  --line-strong: #35455a;
+  --ink: #e6edf5;
+  --ink-2: #c3d0de;
+  --ink-3: #9fb0c2;
+  --ink-4: #6a7d92;
+  /*
+   * Sky is the app talking: the brand, focus rings, the selected tab, the
+   * button you are meant to press. It has no opinion about whether anything
+   * is wrong.
+   */
+  --accent: #38bdf8;
+  --accent-ink: #7dd3fc;
+  --accent-dim: #4b8db3;
+  /*
+   * Amber means one thing and one thing only: Claude is blocked and cannot
+   * go on until you answer. It was the accent as well, which made the one
+   * genuine alarm in the app the same colour as the Send button. Now it is
+   * spent nowhere else, so seeing it anywhere means the same thing.
+   */
   --need: #f2a93b;
   --need-ink: #f5c889;
   --need-dim: #b08a52;
-  --work: #46b8cc;
+  /* Working, and finished, and broken. Cyan sits a step off sky on purpose:
+     near enough to read as calm, far enough to tell apart. */
+  --work: #22d3ee;
   --done: #4fbf87;
   --fail: #e5675e;
   --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -38,7 +57,7 @@ body {
   font-size: 14px;
 }
 :focus-visible {
-  outline: 2px solid var(--need);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 .label {
@@ -121,7 +140,7 @@ p {
   color: var(--need);
 }
 .pill--work {
-  background: rgba(70, 184, 204, 0.12);
+  background: rgba(34, 211, 238, 0.12);
   color: var(--work);
 }
 .pill--done {
@@ -133,7 +152,7 @@ p {
   color: var(--fail);
 }
 .pill--stop {
-  background: rgba(110, 118, 129, 0.16);
+  background: rgba(106, 125, 146, 0.16);
   color: var(--ink-3);
 }
 .dot {
@@ -150,7 +169,7 @@ p {
   display: inline-block;
   width: 8px;
   height: 15px;
-  background: var(--need);
+  background: var(--accent);
   vertical-align: -3px;
   animation: blink 1.1s steps(1) infinite;
 }
@@ -158,7 +177,7 @@ p {
   font: inherit;
   border: 0;
   border-radius: 7px;
-  background: var(--need);
+  background: var(--accent);
   color: #12141a;
   font-weight: 600;
   cursor: pointer;
@@ -258,8 +277,8 @@ p {
   color: var(--fail);
 }
 .icon-btn--on {
-  border-color: rgba(242, 169, 59, 0.5);
-  color: var(--need);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: var(--accent);
 }
 .link-btn {
   background: none;
@@ -268,7 +287,7 @@ p {
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--need);
+  color: var(--accent);
   cursor: pointer;
   min-height: 44px;
 }
@@ -321,11 +340,11 @@ p {
   color: var(--ink-3);
 }
 .host--warn {
-  border-color: rgba(70, 184, 204, 0.4);
+  border-color: rgba(34, 211, 238, 0.4);
   color: var(--work);
 }
 .host--cold {
-  border-color: rgba(110, 118, 129, 0.4);
+  border-color: rgba(106, 125, 146, 0.4);
   color: var(--ink-4);
 }
 .banner {
@@ -346,8 +365,8 @@ p {
   border-color: rgba(79, 191, 135, 0.24);
 }
 .banner--link {
-  background: rgba(70, 184, 204, 0.09);
-  border-color: rgba(70, 184, 204, 0.3);
+  background: rgba(34, 211, 238, 0.09);
+  border-color: rgba(34, 211, 238, 0.3);
 }
 .where {
   font-family: var(--mono);
@@ -569,7 +588,7 @@ p {
 }
 .tab[aria-selected="true"] {
   color: var(--ink);
-  border-bottom-color: var(--need);
+  border-bottom-color: var(--accent);
 }
 .tab__short {
   display: none;
@@ -588,7 +607,7 @@ p {
   color: var(--need);
 }
 .tab__badge--work {
-  background: rgba(70, 184, 204, 0.16);
+  background: rgba(34, 211, 238, 0.16);
   color: var(--work);
 }
 .tabs--phone {
@@ -624,7 +643,7 @@ p {
   gap: 10px;
 }
 .term__box i {
-  color: var(--need);
+  color: var(--accent);
   font-style: normal;
 }
 .term__say {
@@ -692,7 +711,7 @@ p {
   font-size: 11px;
 }
 .term__gap span.hr {
-  background: rgba(70, 184, 204, 0.3);
+  background: rgba(34, 211, 238, 0.3);
   flex-grow: 1;
 }
 .promptbar {
@@ -714,7 +733,7 @@ p {
   padding: 10px 12px;
 }
 .promptbox > i {
-  color: var(--need);
+  color: var(--accent);
   font-style: normal;
   font-family: var(--mono);
   font-size: 13px;
@@ -758,7 +777,7 @@ textarea.tinput:disabled {
 .queue__n {
   font-family: var(--mono);
   font-size: 10.5px;
-  color: var(--need);
+  color: var(--accent);
   width: 14px;
   flex-shrink: 0;
 }
@@ -997,7 +1016,7 @@ body {
 }
 .composer--drop {
   background: #16191f;
-  box-shadow: inset 0 0 0 1px var(--need);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 .composer__error {
   margin: 0;
@@ -1023,7 +1042,7 @@ body {
 }
 .composer__attach:hover:not(:disabled) {
   color: var(--ink);
-  border-color: var(--need);
+  border-color: var(--accent);
 }
 .composer__attach:disabled {
   opacity: 0.4;
@@ -1113,7 +1132,7 @@ body {
 }
 .composer__box:focus {
   outline: none;
-  border-color: var(--need);
+  border-color: var(--accent);
 }
 .composer__box::placeholder {
   color: var(--ink-4);
@@ -1127,7 +1146,7 @@ body {
   padding: 0 20px;
   border: 0;
   border-radius: 9px;
-  background: var(--need);
+  background: var(--accent);
   color: #12141a;
   cursor: pointer;
 }
@@ -1173,8 +1192,8 @@ body {
   cursor: pointer;
 }
 .alerts[data-on="true"] {
-  border-color: rgba(242, 169, 59, 0.5);
-  color: var(--need);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: var(--accent);
 }
 
 /* the one open question, on the Waiting tab */
@@ -1208,7 +1227,7 @@ body {
 }
 .ask__yes {
   border: 0;
-  background: var(--need);
+  background: var(--accent);
   color: #12141a;
 }
 .ask__no {
@@ -1258,7 +1277,7 @@ body {
   cursor: pointer;
 }
 .ask__option:hover:not(:disabled) {
-  border-color: var(--need);
+  border-color: var(--accent);
   background: var(--raised);
 }
 .ask__option:disabled {
@@ -1273,8 +1292,8 @@ body {
   height: 22px;
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--need-ink);
-  background: rgba(242, 169, 59, 0.12);
+  color: var(--accent-ink);
+  background: rgba(56, 189, 248, 0.12);
   border-radius: 6px;
 }
 .ask__option-body {
@@ -1441,7 +1460,7 @@ body {
   flex-direction: column;
 }
 .pv__sheet::backdrop {
-  background: rgba(8, 9, 12, 0.7);
+  background: rgba(7, 11, 18, 0.72);
 }
 .pv__sheet-bar {
   flex-shrink: 0;
@@ -1789,7 +1808,7 @@ body {
   font-weight: 600;
 }
 .msg--user .msg__who {
-  color: var(--need-dim);
+  color: var(--accent-dim);
 }
 .msg__when {
   font-variant-numeric: tabular-nums;
@@ -1800,8 +1819,8 @@ body {
   gap: 10px;
 }
 .msg--user .msg__body {
-  background: var(--raised);
-  border: 1px solid var(--line);
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.22);
   border-radius: 12px 12px 4px 12px;
   padding: 11px 15px;
 }
@@ -1889,7 +1908,7 @@ body {
   text-transform: uppercase;
 }
 .tool__running {
-  color: var(--need);
+  color: var(--work);
 }
 .tool__failed {
   color: var(--fail);
@@ -2012,7 +2031,7 @@ body {
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--raised2);
-  color: var(--need-ink);
+  color: var(--accent-ink);
   overflow-wrap: anywhere;
 }
 .msg--user .md__code {
@@ -2197,7 +2216,7 @@ body {
   box-shadow: 0 26px 60px rgba(0, 0, 0, 0.6);
 }
 .picker::backdrop {
-  background: rgba(4, 5, 7, 0.66);
+  background: rgba(4, 8, 14, 0.68);
 }
 .picker__bar {
   display: flex;
@@ -2357,5 +2376,104 @@ body {
     order: 10;
     flex-basis: 100%;
     overflow-wrap: anywhere;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The working line
+   --------------------------------------------------------------------------- */
+
+/* Said to a screen reader, shown to nobody. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Deliberately not a message bubble: nothing has been said yet, and dressing
+   an empty wait as a turn would leave a ghost turn on the screen the moment
+   the real one arrives. */
+.working {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  animation: fade 0.3s ease both;
+}
+.working__face {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  flex-grow: 1;
+}
+.working__glyph {
+  color: var(--work);
+  font-size: 15px;
+  line-height: 1;
+  /* Fixed width so a cycling glyph spins in place instead of nudging the
+     word sideways six times a second. No opacity pulse on top of that — the
+     shape is already the animation. */
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  flex-shrink: 0;
+}
+.working__word {
+  font-size: 14.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  /* The word is the thing that proves the page is alive, so it gets the
+     sheen. Kept slow and shallow — this sits under every prompt you send. */
+  background: linear-gradient(
+    90deg,
+    var(--ink-3) 0%,
+    var(--ink) 40%,
+    var(--ink) 60%,
+    var(--ink-3) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sheen 2.6s linear infinite;
+}
+.working__doing {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-4);
+  min-width: 0;
+}
+.working__time {
+  font-size: 11.5px;
+  color: var(--ink-4);
+  margin-left: auto;
+  padding-left: 10px;
+  flex-shrink: 0;
+}
+@keyframes sheen {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+/* A line that exists to say "still going" must still say it without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .working,
+  .working__word {
+    animation: none;
+  }
+  .working__word {
+    background: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: var(--ink-2);
   }
 }
