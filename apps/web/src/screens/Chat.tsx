@@ -1,7 +1,8 @@
-import type { ChatBlock, ChatMessage } from '@claude-remote/shared';
+import type { ChatBlock, ChatMessage, SessionStatus } from '@claude-remote/shared';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { Composer } from '../components/Composer.js';
+import { Working } from '../components/Working.js';
 import { Markdown } from './Markdown.js';
 
 /**
@@ -114,12 +115,87 @@ function Message({ msg, sessionId }: { msg: ChatMessage; sessionId: string }) {
   );
 }
 
-export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) {
+/**
+ * How long a just-sent prompt is allowed to claim the session is working
+ * before the hooks are expected to have said so themselves.
+ *
+ * The gap is real but small: the prompt is typed into the terminal, Claude
+ * fires UserPromptSubmit, and the session list is polled every three seconds.
+ * This covers that, and no more — a spinner still turning long after nothing
+ * is turning is worse than no spinner at all.
+ */
+const GRACE_MS = 15_000;
+
+export function Chat({
+  sessionId,
+  live,
+  status,
+  doing,
+}: {
+  sessionId: string;
+  live: boolean;
+  /** From the session list, which SessionView already polls. */
+  status: SessionStatus | null;
+  /** "running Bash", "reading your prompt" — the hook's own words. */
+  doing: string | null;
+}) {
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [found, setFound] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** When this browser last sent a prompt, for the gap before the hooks land. */
+  const [sentAt, setSentAt] = useState<number | null>(null);
   const foot = useRef<HTMLDivElement>(null);
   const count = useRef(0);
+
+  /** What the hooks say: a turn is in flight. */
+  const running = status === 'working' || status === 'starting';
+
+  /* The hooks are the truth; a local send is only a stand-in until they
+     arrive. Both are dropped the moment the session says it is doing anything
+     else, so an unanswered prompt cannot leave the line spinning for ever. */
+  const settled = status !== null && !running;
+  useEffect(() => {
+    if (sentAt === null) return;
+    if (settled) {
+      // Only once the grace has run out: right after Send the session is still
+      // reporting the status it had before the prompt arrived.
+      const left = sentAt + GRACE_MS - Date.now();
+      if (left <= 0) {
+        setSentAt(null);
+        return;
+      }
+      const t = setTimeout(() => setSentAt(null), left);
+      return () => clearTimeout(t);
+    }
+    // It is working, and says so itself. The stand-in has done its job.
+    setSentAt(null);
+  }, [sentAt, settled]);
+
+  /*
+   * Whether this session has ever been in a conversation at all.
+   *
+   * A session nobody has spoken to yet still reports itself as working: the
+   * SessionStart hook fires the moment Claude Code boots, and "getting its
+   * bearings" is a real answer to "what is it doing" — it is just not an
+   * answer to a question anyone asked. Showing the working line there tells
+   * you Claude is thinking about your prompt before you have written one.
+   *
+   * Sticky, because it is a fact about the session rather than about this
+   * instant: once there is a transcript, or once this browser has sent
+   * something, the status alone is trustworthy for the rest of the session.
+   * Without that the line would blink out between the send and the first line
+   * Claude Code files.
+   */
+  const spoken = useRef({ id: sessionId, yes: false });
+  if (spoken.current.id !== sessionId) spoken.current = { id: sessionId, yes: false };
+  if ((messages?.length ?? 0) > 0 || sentAt !== null) spoken.current.yes = true;
+
+  const busy = live && spoken.current.yes && (running || sentAt !== null);
+  /* Counted from the send when this browser sent it, so the number is the
+     wait the person actually had, not the age of the last hook. */
+  const since = useRef(0);
+  if (!busy) since.current = 0;
+  else if (since.current === 0) since.current = sentAt ?? Date.now();
 
   useEffect(() => {
     let stop = false;
@@ -164,6 +240,17 @@ export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) 
     if (first || nearEnd) foot.current?.scrollIntoView({ block: 'end' });
   }, [messages]);
 
+  // The working line appearing under your own prompt is worth following too:
+  // it is the answer to "did that send?", and it is no use off-screen.
+  useEffect(() => {
+    if (!busy) return;
+    const box = foot.current?.parentElement;
+    if (!box) return;
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 240) {
+      foot.current?.scrollIntoView({ block: 'end' });
+    }
+  }, [busy]);
+
   return (
     <>
       <div className="chat">
@@ -181,6 +268,7 @@ export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) 
         {messages?.map((m) => (
           <Message key={m.id} msg={m} sessionId={sessionId} />
         ))}
+        {busy && <Working since={since.current} doing={doing} />}
         <div ref={foot} />
       </div>
       <Composer
@@ -188,6 +276,7 @@ export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) 
         live={live}
         placeholder="Ask Claude something…"
         offlinePlaceholder="This session has ended."
+        onSent={() => setSentAt(Date.now())}
       />
     </>
   );

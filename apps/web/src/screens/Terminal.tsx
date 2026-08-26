@@ -24,11 +24,14 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       fontFamily: '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: 13,
       cursorBlink: true,
+      // xterm cannot read the stylesheet, so the palette is spelled out
+      // again here. These four are --term, --ink-2 and --accent; if those
+      // move, these move with them.
       theme: {
-        background: '#0A0B0E',
-        foreground: '#C9D0DA',
-        cursor: '#F2A93B',
-        selectionBackground: 'rgba(242,169,59,0.25)',
+        background: '#070C14',
+        foreground: '#C3D0DE',
+        cursor: '#38BDF8',
+        selectionBackground: 'rgba(56,189,248,0.25)',
       },
       // Zero on purpose. tmux owns scrolling (mouse is enabled on attach), and
       // a local buffer here is not a smaller copy of that history — it is the

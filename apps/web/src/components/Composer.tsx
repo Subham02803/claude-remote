@@ -33,11 +33,18 @@ export function Composer({
   live,
   placeholder,
   offlinePlaceholder,
+  onSent,
 }: {
   sessionId: string;
   live: boolean;
   placeholder: string;
   offlinePlaceholder: string;
+  /**
+   * Called once the prompt is in. The session does not report itself as
+   * working until Claude's own hook says so, and whoever pressed Send should
+   * not have to sit through that gap wondering — see Chat's working line.
+   */
+  onSent?: () => void;
 }) {
   const [draft, setDraft] = useState('');
   const [shots, setShots] = useState<Attachment[]>([]);
@@ -117,6 +124,7 @@ export function Composer({
       setDraft('');
       for (const s of shots) URL.revokeObjectURL(s.preview);
       setShots([]);
+      onSent?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send that.');
     } finally {

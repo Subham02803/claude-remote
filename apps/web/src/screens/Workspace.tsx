@@ -222,7 +222,7 @@ export function Workspace({ onOpen, ws }: { onOpen: (id: string) => void; ws: Wo
 
           {error && <Problem>{error}</Problem>}
           {note && (
-            <p className="note" style={{ color: 'var(--need-ink)' }}>
+            <p className="note" style={{ color: 'var(--accent-ink)' }}>
               {note}
             </p>
           )}
