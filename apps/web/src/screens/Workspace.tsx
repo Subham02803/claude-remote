@@ -1,16 +1,21 @@
 import { type Project, type Session, isLive } from '@claude-remote/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Pill, Plus, Problem, railColour } from '../components/Bits.js';
+import { Pill, Plus, Problem, Trash, railColour } from '../components/Bits.js';
+import { FolderPicker } from '../components/FolderPicker.js';
 import { Banner, Rail, Topbar } from '../components/Shell.js';
 import { type PushState, disablePush, enablePush, pushState, sendTestAlert } from '../push.js';
+import type { Workspaces } from '../workspaces.js';
 
 /**
- * Everything running, across every project — the prototype's overview screen.
+ * Everything running in the workspace you are in — the prototype's overview.
  *
  * A card shows what its session is actually doing, and a session that needs an
  * answer is unmistakable: amber rail, amber border, and the banner above
- * pointing at it.
+ * pointing at it. The banner is deliberately *not* scoped to the workspace:
+ * "does anything need me" is a question about the machine, and hiding a blocked
+ * session because it lives in another workspace would be the one lie this
+ * screen must not tell.
  */
 /** How long ago, in the prototype's terse style. */
 function since(iso: string | null): string {
@@ -25,20 +30,31 @@ function since(iso: string | null): string {
   return hrs < 24 ? `${hrs}h ${mins % 60}m` : `${Math.floor(hrs / 24)}d ago`;
 }
 
-export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
-  const [projects, setProjects] = useState<Project[]>([]);
+export function Workspace({ onOpen, ws }: { onOpen: (id: string) => void; ws: Workspaces }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [expandedOnce, setExpandedOnce] = useState(false);
   const [alerts, setAlerts] = useState<PushState>('off');
-  const [note, setNote] = useState<string | null>(null);
+  /**
+   * The last thing that happened, and the workspace it happened in.
+   *
+   * Kept together so switching workspace retires the message on its own:
+   * "Removed SchoolConnect" describes a screen you are no longer looking at.
+   */
+  const [said, setSaid] = useState<{ workspace: string | null; note: string } | null>(null);
+  const [picking, setPicking] = useState(false);
+  /** The project whose removal is awaiting a second click. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  /** The ended session whose deletion is awaiting a second click. */
+  const [dropping, setDropping] = useState<string | null>(null);
+
+  const projects: Project[] = ws.current?.projects ?? [];
 
   const refresh = useCallback(async () => {
     try {
-      const [p, s] = await Promise.all([api.projects(), api.sessions()]);
-      setProjects(p.projects);
+      const s = await api.sessions();
       setSessions(s.sessions);
       setError(null);
     } catch (err) {
@@ -49,9 +65,22 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
   useEffect(() => {
     void refresh();
     void pushState().then(setAlerts);
-    const t = setInterval(() => void refresh(), 3000);
+    const t = setInterval(() => {
+      void refresh();
+      // Session counts live on the projects, so the workspace list has to keep
+      // up with them.
+      void ws.reload();
+    }, 3000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, ws.reload]);
+
+  const currentId = ws.current?.id ?? null;
+  const note = said && said.workspace === currentId ? said.note : null;
+
+  /** Says something about the workspace it is being said in. */
+  function say(text: string | null) {
+    setSaid(text === null ? null : { workspace: currentId, note: text });
+  }
 
   // Open the projects that actually have something in them, once. Doing it on
   // every poll would fight anyone who collapsed one on purpose.
@@ -64,16 +93,16 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
   }, [sessions, expandedOnce]);
 
   async function toggleAlerts() {
-    setNote(null);
+    say(null);
     const next = alerts === 'on' ? await disablePush() : await enablePush();
     setAlerts(next);
     if (next === 'insecure') {
-      setNote('Alerts need https. Run `tailscale serve --bg 4180` and open the ts.net address.');
+      say('Alerts need https. Run `tailscale serve --bg 4180` and open the ts.net address.');
     } else if (next === 'denied') {
-      setNote('This browser has blocked notifications. Allow them in site settings.');
+      say('This browser has blocked notifications. Allow them in site settings.');
     } else if (next === 'on') {
       const sent = await sendTestAlert();
-      setNote(sent > 0 ? 'Alerts on — a test notification is on its way.' : 'Alerts on.');
+      say(sent > 0 ? 'Alerts on — a test notification is on its way.' : 'Alerts on.');
     }
   }
 
@@ -89,8 +118,55 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
     }
   }
 
-  const live = sessions.filter(isLive);
-  const withSessions = projects.filter((p) => sessions.some((s) => s.projectId === p.id));
+  async function addProject(path: string, name: string) {
+    if (!ws.current) return;
+    await api.addProject(ws.current.id, path, name);
+    await ws.reload();
+    setPicking(false);
+    say(`Added ${name}.`);
+  }
+
+  async function removeProject(id: string, name: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.removeProject(id);
+      await ws.reload();
+      say(`Removed ${name}. Anything it already ran is still in the history.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove that project.');
+    } finally {
+      setConfirming(null);
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Forgetting an ended session.
+   *
+   * Only our record goes. The work stopped when the session ended, and Claude
+   * Code's own transcript under ~/.claude is its file, not ours to delete.
+   */
+  async function dropSession(sessionId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteSession(sessionId);
+      say('Session deleted.');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete that session.');
+    } finally {
+      setDropping(null);
+      setBusy(false);
+    }
+  }
+
+  /** Only this workspace's work belongs in the lists below. */
+  const mineIds = new Set(projects.map((p) => p.id));
+  const inWorkspace = sessions.filter((s) => mineIds.has(s.projectId));
+  const live = inWorkspace.filter(isLive);
+  const withSessions = projects.filter((p) => inWorkspace.some((s) => s.projectId === p.id));
 
   return (
     <div className="app">
@@ -98,13 +174,17 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
         alerts={alerts === 'on' ? 'on' : 'off'}
         onToggleAlerts={() => void toggleAlerts()}
         onHome={() => {}}
+        workspaces={ws.workspaces}
+        workspaceId={ws.current?.id ?? null}
+        onSelectWorkspace={ws.select}
+        onCreateWorkspace={ws.create}
       />
       <Banner sessions={sessions} onJump={onOpen} />
 
       <div style={{ flexGrow: 1, display: 'flex', minHeight: 0 }}>
         <Rail
           projects={projects}
-          sessions={sessions}
+          sessions={inWorkspace}
           openId={null}
           expanded={expanded}
           onToggle={(id) => setExpanded((e) => ({ ...e, [id]: !e[id] }))}
@@ -115,13 +195,21 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
         <div className="main">
           <div className="main__head">
             <div className="col" style={{ gap: 3 }}>
-              <h1 style={{ fontSize: 26, margin: 0 }}>Everything running</h1>
+              <h1 style={{ fontSize: 26, margin: 0 }}>{ws.current?.name ?? 'No workspace'}</h1>
               <span style={{ fontSize: 13, color: 'var(--ink-4)' }}>
                 {live.length} session{live.length === 1 ? '' : 's'} across {withSessions.length}{' '}
                 project{withSessions.length === 1 ? '' : 's'}
               </span>
             </div>
             <span className="spacer" />
+            <button
+              type="button"
+              className="btn btn--md btn--line"
+              disabled={!ws.current}
+              onClick={() => setPicking(true)}
+            >
+              <Plus /> Add project
+            </button>
             <button
               type="button"
               className="btn btn--md"
@@ -139,9 +227,30 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
             </p>
           )}
 
+          {!ws.loading && ws.workspaces.length === 0 && (
+            <div className="nothing" style={{ padding: 30 }}>
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                No workspaces yet. Make one from the menu at the top left, then add the folders you
+                work in.
+              </span>
+            </div>
+          )}
+
+          {ws.current && projects.length === 0 && (
+            <div className="nothing" style={{ padding: 30, gap: 12 }}>
+              <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                Nothing in <b>{ws.current.name}</b> yet. A project is a folder Claude may be started
+                in.
+              </span>
+              <button type="button" className="btn btn--md" onClick={() => setPicking(true)}>
+                <Plus /> Add the first project
+              </button>
+            </div>
+          )}
+
           <div className="groups">
             {projects.map((p) => {
-              const mine = sessions.filter((s) => s.projectId === p.id);
+              const mine = inWorkspace.filter((s) => s.projectId === p.id);
               return (
                 <div className="col" style={{ gap: 9 }} key={p.id}>
                   <div className="group__head">
@@ -158,17 +267,52 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
                     <span className="group__name">{p.name}</span>
                     <span className="group__path">{p.path}</span>
                     <span className="spacer" />
-                    <span className="mono num" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                      {mine.length} session{mine.length === 1 ? '' : 's'}
-                    </span>
-                    <button
-                      type="button"
-                      className="link-btn link-btn--quiet"
-                      disabled={busy}
-                      onClick={() => void start(p.id)}
-                    >
-                      <Plus /> new session
-                    </button>
+
+                    {confirming === p.id ? (
+                      <>
+                        <span style={{ fontSize: 11.5, color: 'var(--need-ink)' }}>
+                          remove from this workspace?
+                        </span>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          disabled={busy}
+                          onClick={() => void removeProject(p.id, p.name)}
+                        >
+                          remove
+                        </button>
+                        <button
+                          type="button"
+                          className="link-btn link-btn--quiet"
+                          onClick={() => setConfirming(null)}
+                        >
+                          keep
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="mono num" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                          {mine.length} session{mine.length === 1 ? '' : 's'}
+                        </span>
+                        <button
+                          type="button"
+                          className="link-btn link-btn--quiet"
+                          disabled={busy}
+                          onClick={() => void start(p.id)}
+                        >
+                          <Plus /> new session
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn--plain"
+                          title={`Remove ${p.name} from this workspace`}
+                          aria-label={`Remove ${p.name} from this workspace`}
+                          onClick={() => setConfirming(p.id)}
+                        >
+                          <Trash />
+                        </button>
+                      </>
+                    )}
                   </div>
 
                   <div className="col" style={{ gap: 8 }}>
@@ -181,15 +325,13 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
                     )}
 
                     {mine.map((s) => (
-                      <button
-                        type="button"
+                      <div
                         className={`card${s.status === 'waiting' ? ' card--need' : ''}`}
                         key={s.id}
-                        onClick={() => onOpen(s.id)}
                         style={{ opacity: isLive(s) ? 1 : 0.55 }}
                       >
                         <div className="card__rail" style={{ background: railColour(s.status) }} />
-                        <div className="card__body">
+                        <button type="button" className="card__open" onClick={() => onOpen(s.id)}>
                           <div className="card__head">
                             <span
                               className="card__title"
@@ -218,8 +360,45 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
                               )}
                             </span>
                           </div>
-                        </div>
-                      </button>
+                        </button>
+
+                        {/* Only once it has ended. A running session is stopped
+                            from inside it, and offering to delete the record of
+                            work that is still happening would be a trap. */}
+                        {!isLive(s) && (
+                          <span className="card__side">
+                            {dropping === s.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="link-btn"
+                                  disabled={busy}
+                                  onClick={() => void dropSession(s.id)}
+                                >
+                                  delete
+                                </button>
+                                <button
+                                  type="button"
+                                  className="link-btn link-btn--quiet"
+                                  onClick={() => setDropping(null)}
+                                >
+                                  keep
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="icon-btn icon-btn--plain"
+                                title={`Delete "${s.title}" from the list`}
+                                aria-label={`Delete "${s.title}" from the list`}
+                                onClick={() => setDropping(s.id)}
+                              >
+                                <Trash />
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -232,6 +411,14 @@ export function Workspace({ onOpen }: { onOpen: (id: string) => void }) {
           </p>
         </div>
       </div>
+
+      {picking && ws.current && (
+        <FolderPicker
+          workspaceName={ws.current.name}
+          onPick={addProject}
+          onClose={() => setPicking(false)}
+        />
+      )}
     </div>
   );
 }

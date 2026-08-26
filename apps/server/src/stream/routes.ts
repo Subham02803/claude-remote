@@ -2,6 +2,7 @@ import websocket from '@fastify/websocket';
 import type { Database } from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { Config } from '../config.js';
+import { getProject } from '../projects/store.js';
 import * as sessions from '../session/store.js';
 import { type Bridge, NoSuchSession, openBridge, parseClientMessage } from '../terminal/bridge.js';
 import { isOurs, sessionName, tmuxAvailable } from '../terminal/tmux.js';
@@ -58,7 +59,7 @@ export async function registerStreamRoutes(
       // The session must already exist, and its project decides the folder.
       // A URL cannot conjure a Claude somewhere unexpected.
       const row = sessions.get(db, id);
-      const project = row && config.projects.find((p) => p.id === row.project_id);
+      const project = row && getProject(db, row.project_id);
       if (!row || !project) {
         socket.close(1008, 'no such session');
         return;

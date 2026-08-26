@@ -1,9 +1,10 @@
-import type { Agent, FileEdit } from '@claude-remote/shared';
+import type { Agent, FileEdit, Project } from '@claude-remote/shared';
 import { type Session as SessionData, isLive, isStoppable } from '@claude-remote/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Back, Check, Pill, Problem, Warn } from '../components/Bits.js';
 import { Rail, Topbar } from '../components/Shell.js';
+import type { Workspaces } from '../workspaces.js';
 import { Chat } from './Chat.js';
 import { Diff } from './Diff.js';
 import { Files } from './Files.js';
@@ -17,15 +18,17 @@ type Tab = 'chat' | 'terminal' | 'waiting' | 'agents' | 'changes' | 'files';
  * The terminal stays mounted while other tabs are shown — unmounting it would
  * detach and reattach, redrawing the screen every time you glanced at Changes.
  */
-export function SessionView({ id, onBack }: { id: string; onBack: () => void }) {
+export function SessionView({
+  id,
+  onBack,
+  ws,
+}: { id: string; onBack: () => void; ws: Workspaces }) {
   // Chat is the default: it is the readable view, and the only one that can
   // show the whole conversation. The terminal is one tab over for when only a
   // real TUI will do.
   const [tab, setTab] = useState<Tab>('chat');
   const [sessions, setSessions] = useState<SessionData[]>([]);
-  const [projects, setProjects] = useState<
-    { id: string; name: string; path: string; sessions: number }[]
-  >([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [files, setFiles] = useState<{ path: string; edits: number; tool: string }[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [openFile, setOpenFile] = useState<string | null>(null);
@@ -35,6 +38,8 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  /** Which irreversible thing is waiting for a second click, if any. */
+  const [asking, setAsking] = useState<'end' | 'delete' | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -76,6 +81,15 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
   const session = sessions.find((s) => s.id === id);
   const project = projects.find((p) => p.id === session?.projectId);
 
+  /* Opening a session from a link, or from the banner, can land you on work
+     that lives in another workspace. Follow it rather than showing a rail with
+     nothing in it — the session you asked for is the thing that is true here. */
+  const { select: selectWorkspace, current: currentWorkspace } = ws;
+  useEffect(() => {
+    if (!project || !currentWorkspace) return;
+    if (project.workspaceId !== currentWorkspace.id) selectWorkspace(project.workspaceId);
+  }, [project, currentWorkspace, selectWorkspace]);
+
   /* Opening a file in Changes fetches what this session did to it — the edits,
      not the file. Closing drops them, so a stale diff can never be shown under
      a different file's name. */
@@ -115,10 +129,43 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     }
   }
 
-  async function decide(answer: 'approve' | 'deny') {
+  /** Ends the session for real. The record stays, so it can still be read. */
+  async function endIt() {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await api.endSession(id);
+      setAsking(null);
+      setNote('Session ended.');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not end that session.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Forgets an ended session and leaves for the overview — there is nothing
+      left here to look at. */
+  async function deleteIt() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteSession(id);
+      setAsking(null);
+      onBack();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete that session.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(answer: 'approve' | 'deny' | 'choose', option?: number) {
     setBusy(true);
     try {
-      await api.decide(id, answer);
+      await api.decide(id, answer, option);
       await refresh();
       setTab('chat');
     } catch (err) {
@@ -128,6 +175,11 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
     }
   }
 
+  /* The rail belongs to the workspace, not to the machine. */
+  const railProjects = ws.current?.projects ?? projects;
+  const railIds = new Set(railProjects.map((p) => p.id));
+  const railSessions = sessions.filter((s) => railIds.has(s.projectId));
+
   const ask = session?.ask ?? null;
   /* Subagents only: the main agent is always "working" while the session is,
      and counting it would make the badge say 1 for every idle session. */
@@ -135,12 +187,20 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
 
   return (
     <div className="app">
-      <Topbar alerts="off" onToggleAlerts={() => {}} onHome={onBack} />
+      <Topbar
+        alerts="off"
+        onToggleAlerts={() => {}}
+        onHome={onBack}
+        workspaces={ws.workspaces}
+        workspaceId={ws.current?.id ?? null}
+        onSelectWorkspace={ws.select}
+        onCreateWorkspace={ws.create}
+      />
 
       <div style={{ flexGrow: 1, display: 'flex', minHeight: 0 }}>
         <Rail
-          projects={projects}
-          sessions={sessions}
+          projects={railProjects}
+          sessions={railSessions}
           openId={id}
           expanded={expanded}
           onToggle={(pid) => setExpanded((e) => ({ ...e, [pid]: !e[pid] }))}
@@ -191,7 +251,60 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
                 {busy ? 'Stopping…' : 'Stop'}
               </button>
             )}
+
+            {/* Ending and deleting are one control in two states, because they
+                are two steps of one thought — and never the same click. Ending
+                stops the work and leaves the session here to read; deleting is
+                offered only afterwards, and only takes our record of it. */}
+            {session && isLive(session) && (
+              <button
+                type="button"
+                className="btn btn--line btn--sm"
+                disabled={busy}
+                onClick={() => setAsking(asking === 'end' ? null : 'end')}
+                title="Closes the session for good. This is the one thing that stops the work."
+              >
+                End session
+              </button>
+            )}
+            {session && !isLive(session) && (
+              <button
+                type="button"
+                className="btn btn--line btn--sm"
+                disabled={busy}
+                onClick={() => setAsking(asking === 'delete' ? null : 'delete')}
+                title="Removes this session from the list. The work already stopped."
+              >
+                Delete
+              </button>
+            )}
           </div>
+
+          {asking && (
+            <div className="confirm" role="alertdialog" aria-live="polite">
+              <span style={{ minWidth: 0 }}>
+                {asking === 'end'
+                  ? 'End this session? Claude stops, and the terminal closes for good.'
+                  : 'Delete this session from the list? The conversation Claude filed under ~/.claude stays where it is.'}
+              </span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="btn btn--deny btn--sm"
+                disabled={busy}
+                onClick={() => void (asking === 'end' ? endIt() : deleteIt())}
+              >
+                {asking === 'end' ? 'End it' : 'Delete it'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--line btn--sm"
+                onClick={() => setAsking(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
 
           {(error || note) && (
             <div style={{ padding: '10px 20px 0' }} aria-live="polite">
@@ -324,34 +437,102 @@ export function SessionView({ id, onBack }: { id: string; onBack: () => void }) 
                       Waiting on you
                     </span>
                   </div>
-                  <h2 style={{ fontSize: 24, margin: 0 }}>Run this?</h2>
-                  {/* Shown in full: a command you cannot read is not one you can
-                      honestly approve. */}
-                  <code className="ask__what">{ask.detail}</code>
-                  <span className="mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                    via {ask.tool}
-                  </span>
-                  <div className="ask__row">
-                    <button
-                      type="button"
-                      className="ask__yes"
-                      disabled={busy}
-                      onClick={() => void decide('approve')}
-                    >
-                      Approve once
-                    </button>
-                    <button
-                      type="button"
-                      className="ask__no"
-                      disabled={busy}
-                      onClick={() => void decide('deny')}
-                    >
-                      Deny
-                    </button>
-                  </div>
-                  <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
-                    Denying is safe — Claude picks another route and keeps going.
-                  </span>
+                  {/*
+                    Two different questions wearing one face was the bug here.
+                    An approval is "run this?" and takes yes or no; a question
+                    is "which way?" and takes one of its own answers. Approving
+                    a question types 1, which picks whichever option came first
+                    — an answer nobody gave.
+                  */}
+                  {ask.choice ? (
+                    <>
+                      {ask.choice.header && <span className="ask__chip">{ask.choice.header}</span>}
+                      <h2 style={{ fontSize: 22, margin: 0, lineHeight: 1.35 }}>
+                        {ask.choice.question}
+                      </h2>
+                      {ask.choice.multiSelect ? (
+                        <>
+                          <p className="ask__note">
+                            This one takes several answers at once, which a single tap cannot send.
+                            Pick them in the Terminal tab.
+                          </p>
+                          <ul className="ask__list">
+                            {ask.choice.options.map((o) => (
+                              <li key={o.n}>
+                                <span className="ask__n">{o.n}</span> {o.label}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        <div className="ask__options">
+                          {ask.choice.options.map((o) => (
+                            <button
+                              key={o.n}
+                              type="button"
+                              className="ask__option"
+                              disabled={busy}
+                              onClick={() => void decide('choose', o.n)}
+                            >
+                              <span className="ask__n">{o.n}</span>
+                              <span className="ask__option-body">
+                                <span className="ask__option-label">{o.label}</span>
+                                {o.description && (
+                                  <span className="ask__option-why">{o.description}</span>
+                                )}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="ask__row">
+                        <button
+                          type="button"
+                          className="ask__no"
+                          disabled={busy}
+                          onClick={() => void decide('deny')}
+                        >
+                          None of these
+                        </button>
+                      </div>
+                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
+                        {ask.choice.more > 0
+                          ? `${ask.choice.more} more question${ask.choice.more > 1 ? 's' : ''} follow${ask.choice.more > 1 ? '' : 's'} this one, in the Terminal tab. "None of these" cancels the lot.`
+                          : '“None of these” cancels the question — Claude picks another route and keeps going.'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <h2 style={{ fontSize: 24, margin: 0 }}>Run this?</h2>
+                      {/* Shown in full: a command you cannot read is not one you can
+                          honestly approve. */}
+                      <code className="ask__what">{ask.detail}</code>
+                      <span className="mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                        via {ask.tool}
+                      </span>
+                      <div className="ask__row">
+                        <button
+                          type="button"
+                          className="ask__yes"
+                          disabled={busy}
+                          onClick={() => void decide('approve')}
+                        >
+                          Approve once
+                        </button>
+                        <button
+                          type="button"
+                          className="ask__no"
+                          disabled={busy}
+                          onClick={() => void decide('deny')}
+                        >
+                          Deny
+                        </button>
+                      </div>
+                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-4)' }}>
+                        Denying is safe — Claude picks another route and keeps going.
+                      </span>
+                    </>
+                  )}
                 </div>
               )}
             </div>

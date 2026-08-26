@@ -31,13 +31,69 @@ export interface ApiError {
 
 /* ------------------------------ workspace -------------------------------- */
 
-/** A folder Claude may be started in. Declared in config, never discovered. */
+/** A folder Claude may be started in. Named on purpose, never discovered. */
 export interface Project {
   id: string;
+  /** The workspace it belongs to. */
+  workspaceId: string;
   name: string;
   path: string;
   /** How many live sessions are running in it. */
   sessions: number;
+}
+
+/**
+ * A named group of projects.
+ *
+ * There is always at least one: the server makes a default workspace on first
+ * boot rather than ever showing an empty picker.
+ */
+export interface Workspace {
+  id: string;
+  name: string;
+  createdAt: string;
+  projects: Project[];
+}
+
+/* ----------------------------- folder picker ----------------------------- */
+
+/**
+ * One folder offered by the picker.
+ *
+ * Only folders: a project is a directory, so files are not shown at all rather
+ * than shown and refused.
+ */
+export interface FolderEntry {
+  name: string;
+  /** Relative to the home directory, with forward slashes on every platform. */
+  path: string;
+  /** Dot-prefixed on unix, or hidden by attribute on Windows. */
+  hidden: boolean;
+  /** True when it contains a .git — a strong hint that it is a project. */
+  repo: boolean;
+  /** True when it is already a project in some workspace. */
+  added: boolean;
+}
+
+/**
+ * A folder listing from the picker, always rooted at the home directory.
+ *
+ * `home` and `sep` are for display only. The browser never builds an absolute
+ * path — every request is relative to home, which is what keeps the picker
+ * identical on macOS and Windows.
+ */
+export interface FolderListing {
+  /** The home directory itself, spelled the way this platform spells it. */
+  home: string;
+  /** '/' or '\\', for showing a path the way the machine would write it. */
+  sep: string;
+  /** Where we are, relative to home. '' is home itself. */
+  path: string;
+  /** The folder above, relative to home; null at home. */
+  parent: string | null;
+  entries: FolderEntry[];
+  /** True when the folder held more than the cap and was cut. */
+  truncated: boolean;
 }
 
 /**
@@ -71,11 +127,43 @@ export function isStoppable(s: { status: SessionStatus }): boolean {
  * actually owns it. Hooks have a timeout, so parking one for a bus ride would
  * resolve as something you did not choose.
  */
+/** One answer offered by a question, and the key that picks it. */
+export interface AskOption {
+  /** Its number in the terminal's list, which is what gets typed. 1-based. */
+  n: number;
+  label: string;
+  description: string;
+}
+
+/**
+ * A question with answers, rather than a thing to approve.
+ *
+ * `AskUserQuestion` is not a permission prompt: Claude is asking which of
+ * several routes to take, and "approve" means nothing — pressing 1 picks the
+ * first option, which is an answer nobody chose. Parsed out so the browser can
+ * offer the same list the terminal does.
+ */
+export interface AskChoice {
+  question: string;
+  /** The short chip above it — 'Toggle bug', 'Storage', … */
+  header: string;
+  options: AskOption[];
+  /**
+   * True when the terminal wants several picked and confirmed together, which
+   * one keystroke cannot do. Those stay answerable only in the Terminal tab.
+   */
+  multiSelect: boolean;
+  /** How many more questions follow this one in the same call. */
+  more: number;
+}
+
 export interface Ask {
   tool: string;
   /** The command, path, or whatever the tool was handed. Shown in full. */
   detail: string;
   askedAt: string;
+  /** Set only for a question with options; null for an ordinary approval. */
+  choice: AskChoice | null;
 }
 
 export interface Session {
@@ -191,6 +279,12 @@ export interface DirListing {
 export type ChatBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
+  /**
+   * An image sent from a browser, which reached Claude as a path in the
+   * prompt. The path is stripped from the text and kept as its own block so
+   * the chat can show the picture rather than the filename.
+   */
+  | { kind: 'image'; name: string }
   | {
       kind: 'tool';
       /** 'Read', 'Bash', 'Edit', … */
@@ -216,4 +310,18 @@ export interface Transcript {
   messages: ChatMessage[];
   /** False when Claude Code has not filed a transcript for this session yet. */
   found: boolean;
+}
+
+/* -------------------------------- uploads -------------------------------- */
+
+/**
+ * An image a browser sent, now sitting in the project where Claude can read
+ * it. The name is how every endpoint refers to it; the path is what went into
+ * the prompt, and is shown so it is never a mystery what Claude was handed.
+ */
+export interface Upload {
+  name: string;
+  path: string;
+  mime: string;
+  bytes: number;
 }

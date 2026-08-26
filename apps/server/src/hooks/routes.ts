@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { Config } from '../config.js';
 import { alert } from '../push/send.js';
+import { CHOICE_TOOL } from '../session/choices.js';
 
 /** What a hook payload looks like, in the parts we use. */
 interface HookPayload {
@@ -65,6 +66,7 @@ function describe(p: HookPayload): string | null {
     case 'PostToolUse':
       return tool ? `finished ${tool}` : null;
     case 'PermissionRequest':
+      if (tool === CHOICE_TOOL) return 'is asking you which way to go';
       return tool ? `needs approval to run ${tool}` : 'needs your approval';
     case 'Notification':
       return p.message ? p.message.slice(0, 120) : 'wants your attention';
@@ -121,7 +123,14 @@ export function registerHookRoutes(app: FastifyInstance, config: Config, db: Dat
     // here and closing it on the next event is what stops the phone showing an
     // Approve button that types into a prompt which has already moved on.
     if (event === 'PermissionRequest') {
-      const detail = describeInput(p.tool_input) ?? p.message ?? '(no detail given)';
+      // A question is kept whole. `describeInput` summarises and truncates,
+      // which is right for a command you are approving and wrong for a list of
+      // options you are choosing between — a cut-off option is one nobody can
+      // pick. See session/choices.ts.
+      const detail =
+        p.tool_name === CHOICE_TOOL && p.tool_input
+          ? JSON.stringify(p.tool_input)
+          : (describeInput(p.tool_input) ?? p.message ?? '(no detail given)');
       db.prepare(
         'UPDATE asks SET answer = ?, answered_at = datetime(?) WHERE session_id = ? AND answered_at IS NULL',
       ).run('superseded', 'now', id);

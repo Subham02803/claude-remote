@@ -3,9 +3,11 @@ import type { Database } from 'better-sqlite3';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Config } from '../config.js';
+import { getProject, listProjects } from '../projects/store.js';
 import { readAgents } from '../session/agents.js';
 import { audit } from '../session/audit.js';
 import { readChanges, readEdits } from '../session/changes.js';
+import { parseChoice } from '../session/choices.js';
 import {
   NotPreviewable,
   OutsideProject,
@@ -14,7 +16,16 @@ import {
 } from '../session/files.js';
 import * as sessions from '../session/store.js';
 import { readTranscript } from '../session/transcript.js';
-import { ANSWER, sendKeys, sendText } from '../terminal/keys.js';
+import {
+  MAX_IMAGES,
+  MAX_IMAGE_BYTES,
+  NotAnImage,
+  composePrompt,
+  readUpload,
+  saveUpload,
+  uploadPath,
+} from '../session/uploads.js';
+import { ANSWER, choose, sendKeys, sendText } from '../terminal/keys.js';
 import { hasSession, sessionName } from '../terminal/tmux.js';
 
 /** Best guess at which device this is, for UC-8's "started from your phone". */
@@ -28,14 +39,11 @@ function deviceOf(req: FastifyRequest): string {
 export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db: Database): void {
   app.get('/api/projects', async (): Promise<{ projects: Project[] }> => {
     const live = await sessions.list(db, config);
-    return {
-      projects: config.projects.map((p) => ({
-        id: p.id,
-        name: p.name,
-        path: p.path,
-        sessions: live.filter((s) => s.projectId === p.id && isLive(s)).length,
-      })),
-    };
+    const counts = new Map<string, number>();
+    for (const s of live) {
+      if (isLive(s)) counts.set(s.projectId, (counts.get(s.projectId) ?? 0) + 1);
+    }
+    return { projects: listProjects(db, counts) };
   });
 
   app.get('/api/sessions', async () => ({ sessions: await sessions.list(db, config) }));
@@ -62,6 +70,9 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
       if (err instanceof sessions.NoSuchProject) {
         return reply.code(404).send({ error: 'no_such_project', message: err.message });
       }
+      if (err instanceof sessions.ProjectGone) {
+        return reply.code(409).send({ error: 'project_gone', message: err.message });
+      }
       req.log.error({ err }, 'could not start a session');
       return reply.code(500).send({
         error: 'start_failed',
@@ -70,7 +81,11 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
     }
   });
 
-  const decisionBody = z.object({ answer: z.enum(['approve', 'deny']) });
+  const decisionBody = z.object({
+    answer: z.enum(['approve', 'deny', 'choose']),
+    /** Which option, 1-based, when the answer is 'choose'. */
+    option: z.number().int().min(1).max(9).optional(),
+  });
 
   /**
    * Answering the question a session is blocked on.
@@ -84,7 +99,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
     if (!parsed.success) {
       return reply
         .code(400)
-        .send({ error: 'bad_request', message: 'answer must be "approve" or "deny".' });
+        .send({ error: 'bad_request', message: 'answer must be "approve", "deny" or "choose".' });
     }
     const open = db
       .prepare(
@@ -99,8 +114,43 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
       });
     }
 
+    /**
+     * Picking an option is checked against the question that is actually open.
+     *
+     * Same reason the whole endpoint refuses when nothing is waiting: a digit
+     * sent at the wrong moment is not a no-op, it is a keystroke typed into
+     * whatever the terminal is showing. "Option 3" is only ever sent when
+     * there is an open question with a third option.
+     */
+    const choice = parseChoice(open.tool, open.detail);
+    let chosen: { n: number; label: string } | null = null;
+
+    if (parsed.data.answer === 'choose') {
+      const n = parsed.data.option;
+      const option = n ? choice?.options.find((o) => o.n === n) : undefined;
+      if (!choice || !option) {
+        return reply.code(409).send({
+          error: 'no_such_option',
+          message: 'That is not one of the options being asked about.',
+        });
+      }
+      // Several answers are picked with the spacebar and confirmed with Enter,
+      // which one keystroke cannot express. Guessing at it from here would
+      // submit an answer nobody gave, so it stays a job for the terminal.
+      if (choice.multiSelect) {
+        return reply.code(409).send({
+          error: 'multi_select',
+          message: 'This one takes several answers, so it has to be answered in the terminal.',
+        });
+      }
+      chosen = { n: option.n, label: option.label };
+    }
+
     try {
-      await sendKeys(req.params.id, [...ANSWER[parsed.data.answer]]);
+      await sendKeys(
+        req.params.id,
+        chosen ? choose(chosen.n) : [...ANSWER[parsed.data.answer as 'approve' | 'deny']],
+      );
     } catch (err) {
       req.log.error({ err, id: req.params.id }, 'could not deliver the answer');
       return reply
@@ -108,28 +158,48 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
         .send({ error: 'send_failed', message: 'Could not reach that session.' });
     }
 
+    // What was answered, in the words it was answered with. A row saying
+    // 'approved' where someone picked "leave it failing" is a record of
+    // something that did not happen.
+    const recorded = chosen ? `chose ${chosen.n}` : parsed.data.answer;
+    const doing = chosen
+      ? `chose "${chosen.label}"`
+      : parsed.data.answer === 'approve'
+        ? `approved ${open.tool}`
+        : 'taking another route';
+
     db.prepare(
       "UPDATE asks SET answer = ?, answered_at = datetime('now'), answered_from = ? WHERE id = ?",
-    ).run(parsed.data.answer, deviceOf(req), open.id);
+    ).run(recorded, deviceOf(req), open.id);
     db.prepare(
       "UPDATE sessions SET status = 'working', status_at = datetime('now'), doing = ? WHERE id = ?",
-    ).run(
-      parsed.data.answer === 'approve' ? `approved ${open.tool}` : 'taking another route',
-      req.params.id,
-    );
+    ).run(doing, req.params.id);
 
     audit(db, {
-      event: `ask.${parsed.data.answer}`,
+      event: `ask.${recorded}`,
       actor: deviceOf(req),
-      detail: { session: req.params.id, tool: open.tool, input: open.detail },
+      detail: {
+        session: req.params.id,
+        tool: open.tool,
+        input: open.detail,
+        chose: chosen?.label,
+      },
       ip: req.ip,
       userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200),
     });
-    req.log.info({ id: req.params.id, answer: parsed.data.answer, tool: open.tool }, 'answered');
+    req.log.info({ id: req.params.id, answer: recorded, tool: open.tool }, 'answered');
     return { ok: true };
   });
 
-  const promptBody = z.object({ text: z.string().min(1).max(8000) });
+  const promptBody = z
+    .object({
+      text: z.string().max(8000).default(''),
+      /** Names from `/uploads`, never paths — see the upload route below. */
+      images: z.array(z.string().max(64)).max(MAX_IMAGES).default([]),
+    })
+    .refine((b) => b.text.trim() !== '' || b.images.length > 0, {
+      message: 'A prompt or an image is required.',
+    });
 
   /**
    * Sending a prompt without using the terminal keyboard.
@@ -148,22 +218,116 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
     if (!target) {
       return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
     }
+    const project = getProject(db, target.project_id);
+    if (!project) {
+      return reply.code(404).send({ error: 'no_such_project', message: 'No such project.' });
+    }
     if (target.ended_at || !(await hasSession(sessionName(req.params.id)))) {
       return reply
         .code(409)
         .send({ error: 'session_ended', message: 'That session has already ended.' });
     }
+
+    // Names, resolved here. The client never sends a path: a path in a request
+    // body is a path this server would type into a live shell session, and
+    // "read /Users/you/.ssh/id_rsa" is a perfectly well-formed prompt.
+    const paths: string[] = [];
+    for (const name of parsed.data.images) {
+      const path = uploadPath(project.path, req.params.id, name);
+      if (!path) {
+        return reply
+          .code(404)
+          .send({ error: 'no_such_image', message: 'That image is not there any more.' });
+      }
+      paths.push(path);
+    }
+
     try {
-      await sendText(req.params.id, parsed.data.text);
+      await sendText(req.params.id, composePrompt(parsed.data.text, paths));
     } catch (err) {
       req.log.error({ err }, 'could not deliver the prompt');
       return reply
         .code(502)
         .send({ error: 'send_failed', message: 'Could not reach that session.' });
     }
-    req.log.info({ id: req.params.id }, 'prompt sent');
+    req.log.info({ id: req.params.id, images: paths.length }, 'prompt sent');
     return { ok: true };
   });
+
+  /**
+   * Taking an image from a browser.
+   *
+   * Raw bytes, one image per request, typed by signature rather than by the
+   * header that carried them — `session/uploads.ts` has the reasoning for all
+   * three, and for why the file lands inside the project.
+   *
+   * The write happens before the prompt does, so an upload that fails costs a
+   * retry rather than half a sentence typed into a live session.
+   */
+  app.post<{ Params: { id: string } }>(
+    '/api/sessions/:id/uploads',
+    { bodyLimit: MAX_IMAGE_BYTES },
+    async (req, reply) => {
+      const row = sessions.get(db, req.params.id);
+      if (!row) {
+        return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+      }
+      const project = getProject(db, row.project_id);
+      if (!project) {
+        return reply.code(404).send({ error: 'no_such_project', message: 'No such project.' });
+      }
+      // Uploading into a session nobody is running just leaves litter in a
+      // project: there is no prompt coming that could use it.
+      if (row.ended_at || !(await hasSession(sessionName(req.params.id)))) {
+        return reply
+          .code(409)
+          .send({ error: 'session_ended', message: 'That session has already ended.' });
+      }
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        return reply.code(400).send({ error: 'bad_request', message: 'No image was sent.' });
+      }
+      try {
+        const stored = saveUpload(project.path, req.params.id, body);
+        req.log.info({ id: req.params.id, name: stored.name, bytes: stored.bytes }, 'image saved');
+        return reply.code(201).send({ upload: stored });
+      } catch (err) {
+        if (err instanceof NotAnImage) {
+          return reply.code(415).send({ error: 'not_an_image', message: err.message });
+        }
+        req.log.error({ err, id: req.params.id }, 'could not save an image');
+        return reply
+          .code(500)
+          .send({ error: 'upload_failed', message: 'Could not save that image.' });
+      }
+    },
+  );
+
+  /**
+   * One of those images back, so the chat can show the picture.
+   *
+   * Only names this server minted are readable, which is what makes the lookup
+   * safe: the shape has no separator in it, so there is nothing to traverse.
+   * `nosniff` for the same reason the file endpoint has it — nothing served
+   * from a project should ever be a document a browser decides to render.
+   */
+  app.get<{ Params: { id: string; name: string } }>(
+    '/api/sessions/:id/uploads/:name',
+    async (req, reply) => {
+      const row = sessions.get(db, req.params.id);
+      const project = row && getProject(db, row.project_id);
+      if (!row || !project) {
+        return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+      }
+      const found = readUpload(project.path, req.params.id, req.params.name);
+      if (!found) {
+        return reply.code(404).send({ error: 'no_such_image', message: 'No such image.' });
+      }
+      reply.header('x-content-type-options', 'nosniff');
+      reply.header('cache-control', 'private, max-age=31536000, immutable');
+      return reply.type(found.mime).send(found.bytes);
+    },
+  );
 
   /**
    * Interrupting a run.
@@ -281,7 +445,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
   app.get<{ Params: { id: string }; Querystring: { path?: string } }>(
     '/api/projects/:id/tree',
     async (req, reply) => {
-      const project = config.projects.find((p) => p.id === req.params.id);
+      const project = getProject(db, req.params.id);
       if (!project) {
         return reply.code(404).send({ error: 'no_such_project', message: 'No such project.' });
       }
@@ -329,7 +493,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
   app.get<{ Params: { id: string }; Querystring: { path?: string } }>(
     '/api/projects/:id/file',
     async (req, reply) => {
-      const project = config.projects.find((p) => p.id === req.params.id);
+      const project = getProject(db, req.params.id);
       if (!project) {
         return reply.code(404).send({ error: 'no_such_project', message: 'No such project.' });
       }
@@ -365,7 +529,48 @@ export function registerWorkspaceRoutes(app: FastifyInstance, config: Config, db
       return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
     }
     await sessions.end(db, req.params.id);
+    audit(db, { event: 'session.end', actor: deviceOf(req), detail: { session: req.params.id } });
     req.log.info({ id: req.params.id }, 'session ended');
+    return { ok: true };
+  });
+
+  /**
+   * Forgetting an ended session — the row, its hooks, its questions.
+   *
+   * A separate route from ending on purpose. Ending stops the work and leaves
+   * the record to read; this destroys the record, so it refuses while anything
+   * is still running rather than quietly doing both.
+   *
+   * Claude Code's own transcript, under ~/.claude, is not touched. That is its
+   * file, not ours.
+   */
+  app.delete<{ Params: { id: string } }>('/api/sessions/:id/record', async (req, reply) => {
+    const row = sessions.get(db, req.params.id);
+    if (!row) {
+      return reply.code(404).send({ error: 'no_such_session', message: 'No such session.' });
+    }
+    // The row is only half the answer: rows are reconciled against tmux, and a
+    // session tmux still has is running whatever the column says.
+    if (!row.ended_at || (await hasSession(sessionName(req.params.id)))) {
+      return reply.code(409).send({
+        error: 'still_running',
+        message: 'That session is still running. End it first.',
+      });
+    }
+    try {
+      sessions.remove(db, config, req.params.id);
+    } catch (err) {
+      if (err instanceof sessions.StillRunning) {
+        return reply.code(409).send({ error: 'still_running', message: err.message });
+      }
+      throw err;
+    }
+    audit(db, {
+      event: 'session.delete',
+      actor: deviceOf(req),
+      detail: { session: req.params.id, title: row.title },
+    });
+    req.log.info({ id: req.params.id }, 'session record deleted');
     return { ok: true };
   });
 }
