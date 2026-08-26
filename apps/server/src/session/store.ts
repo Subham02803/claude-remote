@@ -1,15 +1,19 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync, rmSync, statSync } from 'node:fs';
 import type { Session } from '@claude-remote/shared';
 import type { Database } from 'better-sqlite3';
-import type { Config, ProjectConfig } from '../config.js';
-import { writeHookSettings } from '../hooks/settings.js';
+import type { Config } from '../config.js';
+import { settingsPath, writeHookSettings } from '../hooks/settings.js';
 import type { Log } from '../logger.js';
+import { allProjects, getProject } from '../projects/store.js';
 import {
   killSession,
   listSessions as listTmux,
   newSession,
   sessionName,
 } from '../terminal/tmux.js';
+import { parseChoice } from './choices.js';
+import { removeUploads } from './uploads.js';
 
 interface Row {
   id: string;
@@ -27,10 +31,6 @@ interface Row {
 /** Short, unambiguous, and safe inside a tmux session name. */
 function newId(): string {
   return randomBytes(5).toString('hex');
-}
-
-function projectOf(config: Config, id: string): ProjectConfig | undefined {
-  return config.projects.find((p) => p.id === id);
 }
 
 /**
@@ -71,7 +71,7 @@ export async function reconcile(db: Database, config: Config, logger?: Log): Pro
     } else {
       db.prepare(
         'INSERT INTO sessions (id, project_id, title, started_from) VALUES (?, ?, ?, ?)',
-      ).run(id, config.projects[0]?.id ?? 'default', `adopted ${id}`, 'the machine');
+      ).run(id, allProjects(db)[0]?.id ?? 'default', `adopted ${id}`, 'the machine');
     }
     adopted += 1;
   }
@@ -91,7 +91,15 @@ export async function list(db: Database, config: Config): Promise<Session[]> {
           'SELECT session_id, tool, detail, asked_at FROM asks WHERE answered_at IS NULL ORDER BY id DESC',
         )
         .all() as { session_id: string; tool: string; detail: string; asked_at: string }[]
-    ).map((a) => [a.session_id, { tool: a.tool, detail: a.detail, askedAt: a.asked_at }]),
+    ).map((a) => [
+      a.session_id,
+      {
+        tool: a.tool,
+        detail: a.detail,
+        askedAt: a.asked_at,
+        choice: parseChoice(a.tool, a.detail),
+      },
+    ]),
   );
   const rows = db
     .prepare('SELECT * FROM sessions ORDER BY ended_at IS NOT NULL, created_at DESC')
@@ -100,7 +108,9 @@ export async function list(db: Database, config: Config): Promise<Session[]> {
   return rows.map((r) => ({
     id: r.id,
     projectId: r.project_id,
-    projectName: projectOf(config, r.project_id)?.name ?? r.project_id,
+    // A project can be removed from its workspace while sessions it started
+    // are still readable, so the id is the fallback rather than a blank.
+    projectName: getProject(db, r.project_id)?.name ?? r.project_id,
     title: r.title,
     // tmux having lost the session outranks whatever the last hook said: the
     // process is gone, so "working" would be a lie.
@@ -122,6 +132,9 @@ export function get(db: Database, id: string): Row | null {
 
 export class NoSuchProject extends Error {}
 
+/** The project is still listed, but the folder it names is not there any more. */
+export class ProjectGone extends Error {}
+
 /**
  * Starts a session: a row, then a tmux session running the command in the
  * project's folder. The row first, so a tmux session can never exist without
@@ -132,8 +145,14 @@ export async function create(
   config: Config,
   input: { projectId: string; title?: string; startedFrom?: string },
 ): Promise<Session> {
-  const project = projectOf(config, input.projectId);
+  const project = getProject(db, input.projectId);
   if (!project) throw new NoSuchProject(`No project with id "${input.projectId}".`);
+  // Config used to check this at boot for a fixed list. A list that can be
+  // added to while the server runs has to check at the moment of use instead:
+  // a folder can be renamed the day after it was picked.
+  if (!existsSync(project.path) || !statSync(project.path).isDirectory()) {
+    throw new ProjectGone(`"${project.name}" points at ${project.path}, which is not there.`);
+  }
 
   const id = newId();
   const title = (input.title ?? '').trim() || `session ${id}`;
@@ -178,4 +197,42 @@ export async function create(
 export async function end(db: Database, id: string): Promise<void> {
   await killSession(sessionName(id));
   db.prepare("UPDATE sessions SET ended_at = datetime('now') WHERE id = ?").run(id);
+}
+
+/** Raised when a delete was asked for on a session that is still running. */
+export class StillRunning extends Error {}
+
+/**
+ * Forgets an ended session: the row, the hooks it filed, and the questions it
+ * asked. Ending is what stops the work; this is what clears the list afterwards.
+ *
+ * Deliberately not the same button as ending. `end` is reversible in the way
+ * that matters — the record is still there to read — and this is not, so it
+ * refuses outright while anything is still running rather than ending the
+ * session on your behalf and then destroying the evidence.
+ *
+ * The transcript itself is Claude Code's file, under ~/.claude, and is left
+ * exactly where it is. This deletes our record of the session, not Claude's.
+ */
+export function remove(db: Database, config: Config, id: string): void {
+  const row = get(db, id);
+  if (!row) return;
+  if (!row.ended_at) throw new StillRunning('That session is still running.');
+
+  const wipe = db.transaction(() => {
+    db.prepare('DELETE FROM asks WHERE session_id = ?').run(id);
+    db.prepare('DELETE FROM session_events WHERE session_id = ?').run(id);
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  });
+  wipe();
+
+  // The generated settings file is ours and names this session; nothing else
+  // will ever read it again.
+  rmSync(settingsPath(config, id), { force: true });
+
+  // So are the images sent to it, which sit inside the project. Forgetting the
+  // session has to forget them too, or a project slowly fills with screenshots
+  // belonging to conversations nobody can read any more.
+  const project = getProject(db, row.project_id);
+  if (project) removeUploads(project.path, id);
 }

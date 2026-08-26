@@ -169,6 +169,8 @@ and silently drops the upgrade.
 - `PROJECTS=name=/path,name=/path` in config. Declared, never discovered, and
   the server refuses to boot if one is not a directory — a session that dies the
   moment it starts is a worse error than one that never starts.
+  *(Superseded by Step 11: the list moved into the database, grouped into
+  workspaces. The declared-not-discovered rule survived the move.)*
 - Migration `002_sessions.sql`; `src/session/store.ts` holds the reconciliation.
 - `GET /api/projects`, `GET /api/sessions`, `POST /api/sessions`,
   `DELETE /api/sessions/:id`.
@@ -558,6 +560,53 @@ Against the running server, in a browser:
   same payload today, so they agree.
 - Both are the declared-projects rule working, not failing.
 
+## Step 11 — Workspaces, and a folder picker &mdash; **done**
+
+Projects were an environment variable, which meant adding one was an edit and a
+restart. They are now rows, grouped into workspaces, added from the UI.
+
+**Built**
+- Migration `006_workspaces.sql`: `workspaces`, and `projects` with a
+  `UNIQUE (workspace_id, path)`. Sessions deliberately keep **no** foreign key
+  to a project — a row outlives the work it describes, and un-naming a folder
+  should not erase the history of what was done in it.
+- `src/projects/store.ts` — the registry `config.projects` used to be. Ids are
+  slugs rather than random, because they end up in URLs and in session rows that
+  outlive the project.
+- `src/projects/browse.ts` — the picker, rooted at the home directory. The
+  browser only ever sends a path **relative to home**, which is what makes the
+  same code work against `/Users/you` and `C:\Users\you` without either side
+  knowing which it is talking to.
+- `src/routes/workspaces.ts` — workspace CRUD, add/remove project, `/api/folders`.
+- `components/WorkspaceMenu.tsx` in the topbar, `components/FolderPicker.tsx` as
+  a modal `<dialog>`, `workspaces.ts` holding the choice in localStorage.
+- `PROJECTS` is read exactly once more, by `seedWorkspaces`, to import an
+  existing list on first boot. After that it is gone from `.env`.
+
+**The rule that matters:** the containment check is the same shape as
+`session/files.ts` — lexical after `resolve`, then again after `realpath`. The
+second check is the only thing that catches a symlink *inside* home pointing out
+of it. Verified: `../../etc`, `..`, `../.ssh` and a symlink to `/etc` are all
+refused, at browse **and** at add.
+
+**Also built:** deleting a session, not just ending it. `DELETE /api/sessions/:id`
+still ends; `DELETE /api/sessions/:id/record` forgets an ended one — its row, its
+hook events, its asks, its generated settings file. Two routes rather than one,
+because ending leaves a record to read and deleting does not, and a session that
+is still running is refused rather than quietly ended first. Claude Code's own
+transcript under `~/.claude` is never touched: that is its file, not ours.
+
+| Tried | Got |
+|---|---|
+| `folders?path=../../etc` | 403 |
+| `folders?path=/etc` | 404 — never resolved outside home |
+| a symlink in home pointing at `/etc` | listed, then 403 on browse and on add |
+| a symlink in home pointing at `~/Projects` | added, storing the **real** path |
+| the same folder twice in one workspace | 409, naming the project already there |
+| removing a project with a live session | 409, saying how many |
+| deleting a running session's record | 409, "End it first." |
+| a project whose folder was deleted | 409 on start, naming the missing path |
+
 ## Build order at a glance
 
 | Step | Ends with | Depends on |
@@ -572,6 +621,7 @@ Against the running server, in a browser:
 | 8 | The rest of the screens | 4, 5 |
 | 9 | The UI matches the prototype | 8 |
 | 10 | Agents, real diffs, a readable project | 5, 8 |
+| 11 | Workspaces, a folder picker, deletable sessions | 4, 9 |
 
 Steps 4 and 5 are independent of each other and can be done in either order.
 

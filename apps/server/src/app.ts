@@ -4,10 +4,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Config } from './config.js';
 import type { Db } from './db/index.js';
 import { registerHookRoutes } from './hooks/routes.js';
+import { seedWorkspaces } from './projects/store.js';
 import { registerPushRoutes } from './push/routes.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerWebRoutes } from './routes/web.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
+import { registerWorkspaceAdminRoutes } from './routes/workspaces.js';
 import { registerHostGuard } from './security/guard.js';
 import { reconcile } from './session/store.js';
 import { registerStreamRoutes } from './stream/routes.js';
@@ -72,6 +74,16 @@ export async function buildApp(opts: BuildOptions): Promise<FastifyInstance> {
     }
   });
 
+  // Images arrive as their own bytes under their own content type — see
+  // session/uploads.ts for why an image has to become a file at all. Fastify
+  // has no parser for those, and a multipart dependency would buy nothing:
+  // one image per request is what the composer sends either way.
+  app.addContentTypeParser(
+    ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/octet-stream'],
+    { parseAs: 'buffer' },
+    (_req, body, done) => done(null, body as Buffer),
+  );
+
   await app.register(rateLimit, {
     global: false,
     max: 300,
@@ -82,8 +94,13 @@ export async function buildApp(opts: BuildOptions): Promise<FastifyInstance> {
   // Before every route, so a new subsystem cannot forget to opt in.
   registerHostGuard(app, config);
 
+  // There has to be somewhere to start a session before anything can ask for
+  // the list. Runs once, on the first boot against an empty database.
+  seedWorkspaces(db.handle, config, app.log);
+
   await registerStreamRoutes(app, config, db.handle);
   registerWorkspaceRoutes(app, config, db.handle);
+  registerWorkspaceAdminRoutes(app, config, db.handle);
   registerHookRoutes(app, config, db.handle);
   registerPushRoutes(app, config, db.handle);
   registerHealthRoutes(app, config, db, startedAt);

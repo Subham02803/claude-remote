@@ -2,7 +2,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as Xterm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api.js';
+import { Composer } from '../components/Composer.js';
 
 type Link = 'connecting' | 'live' | 'closed';
 
@@ -16,24 +16,6 @@ type Link = 'connecting' | 'live' | 'closed';
 export function Terminal({ sessionId }: { sessionId: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [link, setLink] = useState<Link>('connecting');
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-
-  /**
-   * Sending a prompt without the on-screen keyboard fighting the terminal.
-   * Scope §5.1 — long prompts on a phone inside an xterm are miserable.
-   */
-  async function send() {
-    const text = draft.trim();
-    if (!text || sending) return;
-    setSending(true);
-    try {
-      await api.sendPrompt(sessionId, text);
-      setDraft('');
-    } finally {
-      setSending(false);
-    }
-  }
 
   useEffect(() => {
     if (!host.current) return;
@@ -103,39 +85,16 @@ export function Terminal({ sessionId }: { sessionId: string }) {
   return (
     <>
       <div className="term-host" ref={host} />
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <textarea
-          className="composer__box"
-          rows={1}
-          value={draft}
-          placeholder={
-            link === 'live' ? 'Type a prompt here instead of in the terminal…' : 'Reconnecting…'
-          }
-          disabled={link !== 'live'}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter sends, Shift-Enter is a newline — the same as every chat box
-            // anyone has used, which is the point.
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <button
-          type="submit"
-          className="composer__send"
-          disabled={!draft.trim() || sending || link !== 'live'}
-        >
-          Send
-        </button>
-      </form>
+      {/*
+        A real box instead of the on-screen keyboard inside an xterm — scope
+        §5.1, and the only place an image can be attached from a phone.
+      */}
+      <Composer
+        sessionId={sessionId}
+        live={link === 'live'}
+        placeholder="Type a prompt here instead of in the terminal…"
+        offlinePlaceholder="Reconnecting…"
+      />
     </>
   );
 }

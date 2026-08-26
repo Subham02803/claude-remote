@@ -104,6 +104,66 @@ export function Back() {
   );
 }
 
+export function Folder() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1.8 4.2a1 1 0 0 1 1-1h3l1.4 1.6h5a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-9.4a1 1 0 0 1-1-1V4.2Z" />
+    </svg>
+  );
+}
+
+/** A folder with a .git is almost always the thing someone means by "project". */
+export function Git() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="4.6" cy="4" r="1.8" />
+      <circle cx="4.6" cy="12" r="1.8" />
+      <circle cx="11.4" cy="8" r="1.8" />
+      <path d="M4.6 5.8v4.4" />
+      <path d="M9.6 8H8.2a3.6 3.6 0 0 1-3.6-3.6" />
+    </svg>
+  );
+}
+
+export function Trash() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2.8 4.4h10.4" />
+      <path d="M6.2 4.4V3.2a.8.8 0 0 1 .8-.8h2a.8.8 0 0 1 .8.8v1.2" />
+      <path d="M4.2 4.4l.6 8a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8" />
+    </svg>
+  );
+}
+
 export function Chev({ down }: { down?: boolean }) {
   return (
     <svg

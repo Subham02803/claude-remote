@@ -458,8 +458,11 @@ p {
   font-size: 11px;
   color: var(--ink-4);
 }
+/* A card is a container rather than one big button: an ended session carries a
+   delete control of its own, and a button inside a button is not a thing. */
 .card {
   display: flex;
+  align-items: stretch;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -468,8 +471,31 @@ p {
   padding: 0;
   font: inherit;
   color: inherit;
-  cursor: pointer;
   width: 100%;
+}
+/* The part that opens the session — everything except the delete control. */
+.card__open {
+  flex-grow: 1;
+  min-width: 0;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+/* Sits outside the clickable area, so a stray tap opens the session rather
+   than destroying it. */
+.card__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0 12px 0 4px;
 }
 .card:hover {
   border-color: var(--line-strong);
@@ -957,11 +983,119 @@ body {
 .composer {
   flex-shrink: 0;
   display: flex;
-  gap: 10px;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: #101216;
+}
+/* The box itself. The column above it is for images and errors. */
+.composer__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.composer--drop {
+  background: #16191f;
+  box-shadow: inset 0 0 0 1px var(--need);
+}
+.composer__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fail);
+}
+
+/* attached images, waiting to go with the next prompt */
+.composer__file {
+  display: none;
+}
+.composer__attach {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--term);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.composer__attach:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--need);
+}
+.composer__attach:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.composer__shelf {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.shot {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: var(--term);
+}
+.shot__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.shot--uploading .shot__img {
+  opacity: 0.45;
+}
+.shot--failed {
+  border-color: var(--fail);
+}
+.shot--failed .shot__img {
+  opacity: 0.3;
+}
+.shot__state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  text-align: center;
+  padding: 2px;
+  color: var(--ink);
+}
+.shot__drop {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  font-size: 13px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  cursor: pointer;
+}
+
+/* an image inside the conversation, as sent */
+.msg__shot {
+  display: block;
+  margin: 6px 0;
+  max-width: 320px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+}
+.msg__shot img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 .composer__box {
   flex-grow: 1;
@@ -1086,6 +1220,97 @@ body {
 .ask__no:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* a question with answers, rather than something to approve */
+.ask__chip {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--need-ink);
+  background: rgba(242, 169, 59, 0.12);
+  border: 1px solid rgba(242, 169, 59, 0.32);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ask__option {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  /* Comfortably past a thumb's worth on a phone, which is where this gets
+     answered. */
+  min-height: 48px;
+  padding: 12px 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.ask__option:hover:not(:disabled) {
+  border-color: var(--need);
+  background: var(--raised);
+}
+.ask__option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ask__n {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--need-ink);
+  background: rgba(242, 169, 59, 0.12);
+  border-radius: 6px;
+}
+.ask__option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ask__option-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ask__option-why {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.ask__note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.ask__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 14px;
+}
+.ask__list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 /* files this session touched */
@@ -1822,4 +2047,315 @@ body {
 .chat + .composer {
   padding-left: max(14px, calc((100% - 860px) / 2));
   padding-right: max(14px, calc((100% - 860px) / 2));
+}
+
+/* ----------------------------- workspaces --------------------------------
+   The switcher in the topbar, and the folder picker that fills a workspace.
+
+   A workspace decides what every other surface shows, so its control sits in
+   the furniture rather than behind a settings screen. The picker is a modal
+   <dialog> for one reason: choosing a folder is a decision with an answer, and
+   the page underneath should wait for it.
+   ------------------------------------------------------------------------ */
+
+.wsmenu {
+  position: relative;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.wsmenu__button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 210px;
+  padding: 7px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wsmenu__button:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.wsmenu__button[aria-expanded="true"] {
+  background: var(--raised);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.wsmenu__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsmenu__panel {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 40;
+  min-width: 250px;
+  max-width: min(320px, calc(100vw - 28px));
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+.wsmenu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.wsmenu__item:hover {
+  background: var(--raised2);
+  color: var(--ink);
+}
+.wsmenu__item[aria-current="true"] {
+  color: var(--ink);
+}
+.wsmenu__item--action {
+  color: var(--ink-3);
+}
+.wsmenu__tick {
+  width: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-4);
+}
+.wsmenu__count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.wsmenu__new {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+}
+.wsmenu__field {
+  flex-grow: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--app);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.wsmenu__field:focus {
+  outline: none;
+  border-color: var(--line-strong);
+}
+.wsmenu__note {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--ink-4);
+  line-height: 1.5;
+}
+.wsmenu__note--bad {
+  color: var(--fail);
+}
+
+/* The tailnet chip is secondary to the workspace name on a narrow topbar. */
+.host--slim {
+  flex-shrink: 0;
+}
+
+/* ---------------------------- folder picker ------------------------------ */
+
+.picker {
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(76vh, 660px);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--app);
+  border: 1px solid var(--line-strong);
+  border-radius: 13px;
+  color: var(--ink);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.6);
+}
+.picker::backdrop {
+  background: rgba(4, 5, 7, 0.66);
+}
+.picker__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.picker__crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.picker__sep {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-4);
+}
+.picker__list {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 140px;
+  -webkit-overflow-scrolling: touch;
+}
+.picker .entry__icon {
+  width: 16px;
+}
+.picker__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-4);
+}
+.picker__tag--on {
+  border-color: rgba(79, 191, 135, 0.4);
+  color: var(--done);
+}
+.picker__note {
+  padding: 12px;
+  font-size: 12.5px;
+  color: var(--ink-4);
+}
+.picker__foot {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+}
+.picker__hidden {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink-4);
+  cursor: pointer;
+}
+.picker__error {
+  margin: 0;
+  padding: 10px 16px;
+  background: rgba(229, 103, 94, 0.1);
+  border-top: 1px solid rgba(229, 103, 94, 0.3);
+  font-size: 12.5px;
+  color: var(--fail);
+}
+.picker__pick {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 13px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 0 0 12px 12px;
+}
+.picker__pick .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.picker__name {
+  width: 128px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  background: var(--app);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.picker__name:focus {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
+@media (max-width: 560px) {
+  .host--slim {
+    display: none;
+  }
+  .wsmenu__button {
+    max-width: 148px;
+  }
+  /* The name field takes the full width and the button drops below it, so the
+     dialog grows to keep the list worth scrolling. */
+  .picker {
+    max-height: 88vh;
+  }
+  .picker__pick {
+    flex-wrap: wrap;
+  }
+  .picker__name {
+    width: 100%;
+  }
+}
+
+/* One irreversible thing, asked plainly, in the flow of the page rather than in
+   a modal that steals focus from a running terminal. */
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 20px 0;
+  padding: 11px 14px;
+  background: rgba(242, 169, 59, 0.08);
+  border: 1px solid rgba(242, 169, 59, 0.35);
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--need-ink);
+}
+
+/* On a phone the project header carries a name, a path, a count and two
+   actions, which is more than one line holds. The path is the part that can
+   move: it drops to its own line and everything actionable stays on the first.
+   Hiding it was the other option, and it is the one thing that tells two
+   folders with the same basename apart. */
+@media (max-width: 720px) {
+  .group__head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .group__name {
+    flex-shrink: 0;
+  }
+  .group__path {
+    order: 10;
+    flex-basis: 100%;
+    overflow-wrap: anywhere;
+  }
 }

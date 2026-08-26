@@ -1,5 +1,6 @@
-import type { Project, Session } from '@claude-remote/shared';
+import type { Project, Session, Workspace } from '@claude-remote/shared';
 import { Brand, Check, Chev, Warn, railColour } from './Bits.js';
+import { WorkspaceMenu } from './WorkspaceMenu.js';
 
 /**
  * The furniture every screen shares: topbar, the one-line answer to "does
@@ -14,10 +15,18 @@ export function Topbar({
   alerts,
   onToggleAlerts,
   onHome,
+  workspaces,
+  workspaceId,
+  onSelectWorkspace,
+  onCreateWorkspace,
 }: {
   alerts: 'on' | 'off';
   onToggleAlerts: () => void;
   onHome: () => void;
+  workspaces: Workspace[];
+  workspaceId: string | null;
+  onSelectWorkspace: (id: string) => void;
+  onCreateWorkspace: (name: string) => Promise<void>;
 }) {
   return (
     <div className="topbar">
@@ -30,7 +39,13 @@ export function Topbar({
         <Brand />
       </button>
       <span style={{ width: 1, height: 20, background: 'var(--line)' }} />
-      <span className="host">
+      <WorkspaceMenu
+        workspaces={workspaces}
+        currentId={workspaceId}
+        onSelect={onSelectWorkspace}
+        onCreate={onCreateWorkspace}
+      />
+      <span className="host host--slim">
         <span className="dot" style={{ background: 'var(--done)' }} />
         home-mac
       </span>

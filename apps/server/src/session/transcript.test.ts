@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { parseTranscript } from './transcript.js';
+import { parseTranscript, splitUploads } from './transcript.js';
 
 const user = (content: unknown, extra = {}) => ({
   type: 'user',
@@ -144,5 +144,122 @@ describe('parseTranscript', () => {
     assert.ok(tool && tool.kind === 'tool');
     assert.equal(tool.result, 'line one');
     assert.equal(tool.summary, 'foo');
+  });
+});
+
+describe('splitUploads', () => {
+  const path = '/Users/a/proj/.claude-remote/uploads/s1/mfa1x2-9c3d1e.png';
+
+  test('an attached image becomes a picture, not a path in the sentence', () => {
+    const out = parseTranscript([user(`why is this misaligned? ${path}`)]);
+    assert.deepEqual(out[0]?.blocks, [
+      { kind: 'text', text: 'why is this misaligned?' },
+      { kind: 'image', name: 'mfa1x2-9c3d1e.png' },
+    ]);
+  });
+
+  test('an image with nothing said is just the image', () => {
+    const out = parseTranscript([user(path)]);
+    assert.deepEqual(out[0]?.blocks, [{ kind: 'image', name: 'mfa1x2-9c3d1e.png' }]);
+  });
+
+  test('a quoted path — a home directory with a space — is caught too', () => {
+    const { text, images } = splitUploads(
+      'look "/Users/a b/p/.claude-remote/uploads/s1/mfa1x2-9c3d1e.jpg"',
+    );
+    assert.equal(text, 'look');
+    assert.deepEqual(images, ['mfa1x2-9c3d1e.jpg']);
+  });
+
+  test('a path Claude wrote about is left alone', () => {
+    const out = parseTranscript([
+      assistant([{ type: 'text', text: `I read ${path} and it looks fine.` }]),
+    ]);
+    assert.deepEqual(out[0]?.blocks, [{ kind: 'text', text: `I read ${path} and it looks fine.` }]);
+  });
+
+  test('an ordinary prompt is untouched', () => {
+    const { text, images } = splitUploads('read src/app.ts and .claude-remote/notes.md');
+    assert.equal(text, 'read src/app.ts and .claude-remote/notes.md');
+    assert.deepEqual(images, []);
+  });
+});
+
+describe('lines nobody typed', () => {
+  /** Verbatim from the session that found this, minus the long paths. */
+  const notification =
+    '<task-notification>\n<task-id>bs63t3eu6</task-id>\n' +
+    '<tool-use-id>toolu_01WXxWjohvDHyrT1uRgd9mjW</tool-use-id>\n' +
+    '<output-file>/private/tmp/claude-501/tasks/bs63t3eu6.output</output-file>\n' +
+    '<status>completed</status>\n<summary>Background command "Single clean full backend run" ' +
+    'completed (exit code 0)</summary>\n</task-notification>';
+
+  test('a background task reporting in is not a message from you', () => {
+    const out = parseTranscript([
+      user('run the suite', { promptSource: 'typed', origin: { kind: 'human' } }),
+      user(notification, { promptSource: 'system', origin: { kind: 'task-notification' } }),
+      assistant([{ type: 'text', text: 'it passed' }]),
+    ]);
+    assert.deepEqual(
+      out.map((m) => [m.role, m.blocks]),
+      [
+        ['user', [{ kind: 'text', text: 'run the suite' }]],
+        ['assistant', [{ kind: 'text', text: 'it passed' }]],
+      ],
+    );
+  });
+
+  test('an older transcript has no metadata at all, so the tag is the evidence', () => {
+    const out = parseTranscript([
+      user(notification),
+      user(
+        '<local-command-caveat>Caveat: The messages below were generated…</local-command-caveat>',
+      ),
+      user('<local-command-stdout>See ya!</local-command-stdout>'),
+    ]);
+    assert.deepEqual(out, []);
+  });
+
+  test('a queued prompt is still something you said', () => {
+    const out = parseTranscript([user('and then deploy it', { promptSource: 'queued' })]);
+    assert.deepEqual(out[0]?.blocks, [{ kind: 'text', text: 'and then deploy it' }]);
+  });
+
+  test('an unfamiliar origin is shown, because hiding your words is worse', () => {
+    const out = parseTranscript([
+      user('something new', { promptSource: 'somethingElse', origin: { kind: 'whatever' } }),
+    ]);
+    assert.deepEqual(out[0]?.blocks, [{ kind: 'text', text: 'something new' }]);
+  });
+
+  test('quoting the tag in a real prompt does not hide the prompt', () => {
+    const out = parseTranscript([
+      user('why do I keep seeing <task-notification> in the chat?', {
+        promptSource: 'typed',
+        origin: { kind: 'human' },
+      }),
+    ]);
+    assert.equal(out.length, 1);
+    assert.deepEqual(out[0]?.blocks, [
+      { kind: 'text', text: 'why do I keep seeing <task-notification> in the chat?' },
+    ]);
+  });
+
+  test('a slash command shows as the command, not as its tags', () => {
+    const out = parseTranscript([
+      user(
+        '<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args>keep the plan</command-args>',
+      ),
+    ]);
+    assert.deepEqual(out[0]?.blocks, [{ kind: 'text', text: '/compact keep the plan' }]);
+  });
+
+  test('a slash command with no arguments is just the command', () => {
+    const out = parseTranscript([
+      user(
+        '<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>',
+      ),
+    ]);
+    assert.deepEqual(out[0]?.blocks, [{ kind: 'text', text: '/clear' }]);
   });
 });

@@ -9,3 +9,9 @@ data/
 .DS_Store
 *.log
 .vite/
+
+# Images sent to a session from the browser. The app writes them inside the
+# project so Claude can read them without a permission prompt for every one —
+# see apps/server/src/session/uploads.ts. They are your screenshots, not the
+# project's, and this repo is itself one of the folders it writes into.
+.claude-remote/

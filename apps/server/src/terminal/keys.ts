@@ -32,6 +32,18 @@ export const ANSWER = {
 } as const;
 
 /**
+ * Picking one option from a numbered question.
+ *
+ * The digit alone, with no Enter after it: in Claude Code's list a number key
+ * both moves to that entry and takes it. An Enter behind it would land on
+ * whatever came next — an empty prompt, or the default of the following
+ * question — which is the kind of mistake that is invisible from a phone.
+ */
+export function choose(n: number): string[] {
+  return [String(n)];
+}
+
+/**
  * Types a prompt into a session and submits it.
  *
  * `-l` sends the text literally, so a prompt containing `C-c` or `Enter` as

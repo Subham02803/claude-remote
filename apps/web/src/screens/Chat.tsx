@@ -1,6 +1,7 @@
 import type { ChatBlock, ChatMessage } from '@claude-remote/shared';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
+import { Composer } from '../components/Composer.js';
 import { Markdown } from './Markdown.js';
 
 /**
@@ -65,7 +66,23 @@ function Thinking({ text }: { text: string }) {
   );
 }
 
-function Message({ msg }: { msg: ChatMessage }) {
+/**
+ * An image that was attached to a prompt.
+ *
+ * Claude was handed a path — that is the only way an image can reach a session
+ * (see the server's `session/uploads.ts`) — but showing the path back to the
+ * person who attached the picture tells them nothing they did not already
+ * know, so the picture is what goes here.
+ */
+function Shot({ sessionId, name }: { sessionId: string; name: string }) {
+  return (
+    <a className="msg__shot" href={api.uploadUrl(sessionId, name)} target="_blank" rel="noreferrer">
+      <img src={api.uploadUrl(sessionId, name)} alt="Attached" loading="lazy" />
+    </a>
+  );
+}
+
+function Message({ msg, sessionId }: { msg: ChatMessage; sessionId: string }) {
   const when = msg.at
     ? new Date(msg.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : '';
@@ -85,6 +102,10 @@ function Message({ msg }: { msg: ChatMessage }) {
             // biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional
             return <Thinking key={i} text={block.text} />;
           }
+          if (block.kind === 'image') {
+            // biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional
+            return <Shot key={i} sessionId={sessionId} name={block.name} />;
+          }
           // biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional
           return <ToolCall key={i} block={block} />;
         })}
@@ -97,8 +118,6 @@ export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) 
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [found, setFound] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
   const foot = useRef<HTMLDivElement>(null);
   const count = useRef(0);
 
@@ -145,20 +164,6 @@ export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) 
     if (first || nearEnd) foot.current?.scrollIntoView({ block: 'end' });
   }, [messages]);
 
-  async function send() {
-    const text = draft.trim();
-    if (!text || sending) return;
-    setSending(true);
-    try {
-      await api.sendPrompt(sessionId, text);
-      setDraft('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send that.');
-    } finally {
-      setSending(false);
-    }
-  }
-
   return (
     <>
       <div className="chat">
@@ -174,39 +179,16 @@ export function Chat({ sessionId, live }: { sessionId: string; live: boolean }) 
           <p className="chat__note">Nothing said yet. Send the first prompt below.</p>
         )}
         {messages?.map((m) => (
-          <Message key={m.id} msg={m} />
+          <Message key={m.id} msg={m} sessionId={sessionId} />
         ))}
         <div ref={foot} />
       </div>
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <textarea
-          className="composer__box"
-          rows={1}
-          value={draft}
-          placeholder={live ? 'Ask Claude something…' : 'This session has ended.'}
-          disabled={!live}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <button
-          type="submit"
-          className="composer__send"
-          disabled={!draft.trim() || sending || !live}
-        >
-          {sending ? '…' : 'Send'}
-        </button>
-      </form>
+      <Composer
+        sessionId={sessionId}
+        live={live}
+        placeholder="Ask Claude something…"
+        offlinePlaceholder="This session has ended."
+      />
     </>
   );
 }

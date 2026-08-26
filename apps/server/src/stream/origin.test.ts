@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { type Db, openDatabase } from '../db/index.js';
+import { allProjects, seedWorkspaces } from '../projects/store.js';
 import { create as createSession } from '../session/store.js';
 import { killSession, sessionName } from '../terminal/tmux.js';
 
@@ -42,10 +43,15 @@ describe('R1: the host guard runs on the WebSocket upgrade', () => {
       // spend subscription quota to prove a header check works.
       TERMINAL_COMMAND: 'bash',
     });
-    db = openDatabase(config, { debug() {}, info() {}, warn() {}, error() {} });
+    const quiet = { debug() {}, info() {}, warn() {}, error() {} };
+    db = openDatabase(config, quiet);
+    // Projects live in the database now, so the default workspace has to exist
+    // before a session can be started in one. buildApp does this too; this test
+    // creates its session before the app is built.
+    seedWorkspaces(db.handle, config, quiet, {});
     // Sessions are created deliberately, never by connecting, so make one.
     const created = await createSession(db.handle, config, {
-      projectId: config.projects[0]!.id,
+      projectId: allProjects(db.handle)[0]!.id,
       title: 'origin test',
     });
     TEST_ID = created.id;

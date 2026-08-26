@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { homedir } from 'node:os';
-import { basename, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { hostname } from './security/hosts.js';
 
@@ -33,17 +33,7 @@ const schema = z.object({
   ALLOWED_HOSTS: z.string().optional(),
   BIND_ANY: z.enum(['true', 'false']).optional(),
   TERMINAL_COMMAND: z.string().optional(),
-  PROJECTS: z.string().optional(),
 });
-
-/** One declared project. */
-export interface ProjectConfig {
-  /** Stable, derived from the name, and safe in a tmux session name. */
-  id: string;
-  name: string;
-  /** Absolute, and checked to exist at boot. */
-  path: string;
-}
 
 export interface Config {
   nodeEnv: 'development' | 'production' | 'test';
@@ -62,8 +52,11 @@ export interface Config {
   bindAny: boolean;
   /** What runs in a session. `bash` is handy for tests that should not burn quota. */
   terminalCommand: string;
-  /** Folders a session may be started in. Declared, never discovered. */
-  projects: ProjectConfig[];
+  /**
+   * The home directory. Every folder a project can live in is under it, and
+   * the picker never offers anything else — see projects/browse.ts.
+   */
+  home: string;
   version: string;
   /** Legal but noteworthy configuration, surfaced at boot and in /api/health/detail. */
   warnings: string[];
@@ -141,49 +134,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
 
-  // Projects: "name=/abs/path" pairs. Declared rather than discovered, so a
-  // session can only ever start somewhere you named on purpose.
-  const projects: ProjectConfig[] = [];
-  const rawProjects = (e.PROJECTS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (rawProjects.length === 0) {
-    projects.push({ id: 'default', name: basename(repoRoot), path: repoRoot });
-  } else {
-    for (const entry of rawProjects) {
-      const at = entry.indexOf('=');
-      if (at < 1) {
-        problems.push(`PROJECTS entry "${entry}" should look like name=/absolute/path.`);
-        continue;
-      }
-      const name = entry.slice(0, at).trim();
-      const path = resolve(
-        entry
-          .slice(at + 1)
-          .trim()
-          .replace(/^~(?=$|\/)/, homedir()),
-      );
-      const id = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-      if (!id) {
-        problems.push(`PROJECTS entry "${entry}" has a name with no usable characters.`);
-        continue;
-      }
-      if (projects.some((p) => p.id === id)) {
-        problems.push(`PROJECTS has two projects that both reduce to the id "${id}".`);
-        continue;
-      }
-      // Failing at boot beats a session that dies the moment it starts.
-      if (!existsSync(path) || !statSync(path).isDirectory()) {
-        problems.push(`PROJECTS entry "${name}" points at "${path}", which is not a directory.`);
-        continue;
-      }
-      projects.push({ id, name, path });
-    }
-  }
+  // Projects are not configured here any more. They live in the database,
+  // grouped into workspaces, and are added from the UI — see projects/store.ts.
+  // The rule that made a declared list worth having is unchanged: a session can
+  // only start in a folder someone named on purpose.
 
   if (problems.length) throw new ConfigError(problems);
 
@@ -205,7 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     boundToLoopback: loopback,
     bindAny,
     terminalCommand: e.TERMINAL_COMMAND ?? 'claude',
-    projects,
+    home: homedir(),
     version: readVersion(),
     warnings,
   };
