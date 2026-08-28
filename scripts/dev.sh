@@ -2,7 +2,7 @@
 #
 # Run the dev servers.
 #
-#   scripts/dev.sh            host: tsx watch + vite            (default)
+#   scripts/dev.sh            host: tsx watch, Vite inside it   (default)
 #   scripts/dev.sh --docker   docker compose up --build
 #   scripts/dev.sh --clean    stop whichever of the two is running
 #   scripts/dev.sh --logs     follow container logs
@@ -21,12 +21,12 @@ cd "$ROOT"
 SERVICE=claude-remote
 PORT="$(sed -n 's/^PORT=[[:space:]]*\([0-9]*\).*/\1/p' .env 2>/dev/null | tail -1)"
 PORT="${PORT:-4180}"
+# Only ever a leftover now: the web app is served by the server itself, with
+# Vite running inside that process. Nothing here starts a second port.
 WEB_PORT=5173
 
 TARGET=host
 MODE=up
-RUN_SERVER=1
-RUN_WEB=1
 
 for arg in "$@"; do
   case "$arg" in
@@ -34,8 +34,6 @@ for arg in "$@"; do
     -d|--detach) MODE=detach ;;
     --logs) TARGET=docker; MODE=logs ;;
     --clean|--down) MODE=clean ;;
-    --server) RUN_WEB=0 ;;
-    --web) RUN_SERVER=0 ;;
     -h|--help) sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "dev.sh: unknown option $arg" >&2; exit 2 ;;
   esac
@@ -137,36 +135,25 @@ fi
 
 command -v tmux >/dev/null 2>&1 || echo "dev.sh: warning — tmux is not installed; sessions will not start. \`brew install tmux\`" >&2
 
-pids=""
-stop() { trap - INT TERM EXIT; [ -n "$pids" ] && kill $pids 2>/dev/null || true; wait 2>/dev/null || true; }
+pnpm --filter @claude-remote/server dev &
+server_pid=$!
+stop() { trap - INT TERM EXIT; kill "$server_pid" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap stop INT TERM EXIT
-
-if [ "$RUN_SERVER" = 1 ]; then
-  pnpm --filter @claude-remote/server dev &
-  server_pid=$!; pids="$pids $server_pid"
-fi
-if [ "$RUN_WEB" = 1 ]; then
-  pnpm --filter @claude-remote/web dev &
-  pids="$pids $!"
-fi
 
 # "The process is running" proves nothing: tsx keeps the watcher alive when the
 # server exits on a bad config. Poll until it actually answers.
-if [ "$RUN_SERVER" = 1 ]; then
-  ready=0
-  for _ in $(seq 1 60); do
-    kill -0 "$server_pid" 2>/dev/null || break
-    if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/health" 2>/dev/null; then
-      ready=1; break
-    fi
-    sleep 0.5
-  done
-  echo
-  [ "$ready" = 1 ] \
-    && echo "dev.sh: API ready on http://127.0.0.1:$PORT" \
-    || echo "dev.sh: API did NOT come up on port $PORT — see the log above." >&2
-fi
-[ "$RUN_WEB" = 1 ] && echo "dev.sh: web on http://127.0.0.1:$WEB_PORT"
+ready=0
+for _ in $(seq 1 60); do
+  kill -0 "$server_pid" 2>/dev/null || break
+  if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/health" 2>/dev/null; then
+    ready=1; break
+  fi
+  sleep 0.5
+done
+echo
+[ "$ready" = 1 ] \
+  && echo "dev.sh: ready on http://127.0.0.1:$PORT — app and API, one port" \
+  || echo "dev.sh: nothing came up on port $PORT — see the log above." >&2
 echo
 
 wait

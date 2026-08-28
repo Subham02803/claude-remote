@@ -4,37 +4,53 @@ import fastifyStatic from '@fastify/static';
 import type { FastifyInstance } from 'fastify';
 import { type Config, repoRoot } from '../config.js';
 import type { Log } from '../logger.js';
+import { attachDevWebApp } from './web-dev.js';
 
 /**
- * Serves the built web app, when there is one.
+ * Serves the web app.
  *
- * In development the web app is served by Vite on its own port and this does
- * nothing. In a container — or anywhere `pnpm --filter web build` has run —
- * the whole app is one origin on one port, which is what makes a single
- * published port useful and keeps the host allowlist covering everything.
+ * Either way it is this port: one origin for the API, the terminal socket and
+ * the page. In development the assets come from Vite, running inside this
+ * process — see web-dev.ts. Anywhere else they come from
+ * `pnpm --filter web build`, and a copy that was never built serves nothing.
  */
 export async function registerWebRoutes(
   app: FastifyInstance,
-  _config: Config,
+  config: Config,
   logger: Log,
 ): Promise<void> {
   const apiMiss = (url: string) => url.startsWith('/api/') || url.startsWith('/auth/');
   const dist = resolve(repoRoot, 'apps/web/dist');
   const built = existsSync(resolve(dist, 'index.html'));
 
-  if (built) {
+  // Development takes Vite over `dist`, always. A build left over from last
+  // week is the one thing worse than no web app at all: it looks right and it
+  // is not the code being edited.
+  let live = false;
+  if (config.nodeEnv === 'development') {
+    try {
+      await attachDevWebApp(app, config, apiMiss);
+      live = true;
+      logger.info('serving the web app with Vite, in this process');
+    } catch (err) {
+      logger.error({ err }, 'could not start Vite');
+    }
+  }
+
+  if (!live && built) {
     await app.register(fastifyStatic, { root: dist, index: ['index.html'] });
-  } else {
-    logger.debug('no built web app; expecting the Vite dev server instead');
+  } else if (!live) {
+    logger.warn('no built web app; run `pnpm --filter @claude-remote/web build`');
   }
 
   // Fastify allows exactly one not-found handler per prefix, so this is the
   // only place it is set. With a build, anything that is not an API route and
-  // not a real file is a client-side route and gets index.html.
+  // not a real file is a client-side route and gets index.html. Under Vite it
+  // is only ever reached by API misses — the rest never gets this far.
   app.setNotFoundHandler(async (req, reply) => {
-    if (built && !apiMiss(req.url)) return reply.sendFile('index.html');
+    if (!live && built && !apiMiss(req.url)) return reply.sendFile('index.html');
     return reply.code(404).send({ error: 'not_found', message: 'No such endpoint.' });
   });
 
-  if (built) logger.info({ dist }, 'serving the built web app');
+  if (!live && built) logger.info({ dist }, 'serving the built web app');
 }
