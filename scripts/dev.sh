@@ -71,6 +71,16 @@ compose() {
 
 # -------------------------------------------------------------- host: stop
 #
+# The background service, if it is installed, is holding this port — and it has
+# KeepAlive, so killing its process just brings it straight back. Ask launchd
+# to stop it instead. It returns at the next login, or on `claude-remote start`.
+
+SERVICE_LABEL=com.claude-remote.server
+if launchctl print "gui/$(id -u)/$SERVICE_LABEL" >/dev/null 2>&1; then
+  echo "dev.sh: stopping the background service (\`claude-remote start\` brings it back)"
+  launchctl bootout "gui/$(id -u)/$SERVICE_LABEL" 2>/dev/null || true
+fi
+
 # tsx watch and Vite both outlive a crashed child, so a boot error leaves a
 # watcher idling on nothing. Repeat that and you get a pile of processes and a
 # port that may or may not be free. Clear that before starting.

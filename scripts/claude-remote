@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+#
+# claude-remote — run the server as a background service.
+#
+#   claude-remote install     install it and start it; it comes back at login
+#   claude-remote start       start it now
+#   claude-remote stop        stop it, and keep it stopped
+#   claude-remote restart     stop and start
+#   claude-remote status      is it running, and where
+#   claude-remote logs [-f]   the server log
+#   claude-remote open        open the web app
+#   claude-remote uninstall   stop it and remove the service
+#
+# It is a launchd LaunchAgent, which means it runs as you, with your login
+# keychain and your credentials — the same footing a terminal gives it. That
+# matters: this server drives `claude` in tmux as you. It also means it starts
+# when you log in, not when the machine boots; a Mac sitting at the login
+# screen after a reboot is not running it.
+#
+set -euo pipefail
+
+# Resolved through symlinks on purpose: the usual way to reach this is
+# ~/.local/bin/claude-remote, and the repo is what every path below is
+# relative to. macOS has no dependable `readlink -f`, hence the loop.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  link="$(readlink "$SELF")"
+  case "$link" in
+    /*) SELF="$link" ;;
+    *) SELF="$(dirname "$SELF")/$link" ;;
+  esac
+done
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+LABEL=com.claude-remote.server
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LOGDIR="$HOME/Library/Logs/claude-remote"
+LOG="$LOGDIR/server.log"
+DOMAIN="gui/$(id -u)"
+BIN="$HOME/.local/bin/claude-remote"
+
+# `|| true` is not enough under pipefail — a missing .env has to be a return,
+# not a failed pipeline, or every command dies before it starts.
+env_value() {
+  [ -f "$ROOT/.env" ] || return 0
+  sed -n "s/^$1=[[:space:]]*\(.*\)$/\1/p" "$ROOT/.env" | tail -1
+}
+PORT="$(env_value PORT)"; PORT="${PORT:-4180}"
+PUBLIC_URL="$(env_value PUBLIC_URL)"
+LOCAL_URL="http://127.0.0.1:$PORT"
+
+die() { echo "claude-remote: $*" >&2; exit 1; }
+loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+running_pid() {
+  launchctl print "$DOMAIN/$LABEL" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -1
+}
+healthy() { curl -fsS -o /dev/null --max-time 2 "$LOCAL_URL/api/health" 2>/dev/null; }
+
+wait_for_health() {
+  for _ in $(seq 1 60); do
+    healthy && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------- install
+
+write_plist() {
+  mkdir -p "$(dirname "$PLIST")" "$LOGDIR"
+  # PATH is baked in rather than discovered at run time. launchd starts agents
+  # with a bare PATH, and a login shell would not help here: node comes from
+  # nvm, which lives in .zshrc and is only read by interactive shells. The
+  # cost is that this has to be re-run after moving node or the repo, which is
+  # what `claude-remote install` is for.
+  cat > "$PLIST" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>            <string>$LABEL</string>
+  <key>ProgramArguments</key> <array>
+    <string>$ROOT/scripts/service.sh</string>
+  </array>
+  <key>WorkingDirectory</key> <string>$ROOT</string>
+  <key>RunAtLoad</key>        <true/>
+  <key>KeepAlive</key>        <true/>
+  <!-- A server that cannot start should not be restarted ten times a second. -->
+  <key>ThrottleInterval</key> <integer>10</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>     <string>$PATH</string>
+    <key>HOME</key>     <string>$HOME</string>
+    <key>NODE_ENV</key> <string>production</string>
+  </dict>
+  <key>StandardOutPath</key>   <string>$LOG</string>
+  <key>StandardErrorPath</key> <string>$LOG</string>
+</dict>
+</plist>
+PLIST_EOF
+}
+
+link_cli() {
+  if [ "$(readlink "$BIN" 2>/dev/null || true)" = "$ROOT/scripts/claude-remote" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$BIN")"
+  ln -sf "$ROOT/scripts/claude-remote" "$BIN"
+  case ":$PATH:" in
+    *":$(dirname "$BIN"):"*) echo "claude-remote: linked $BIN" ;;
+    *) echo "claude-remote: linked $BIN — add $(dirname "$BIN") to your PATH to use it by name" ;;
+  esac
+}
+
+cmd_install() {
+  for tool in node pnpm tmux; do
+    command -v "$tool" >/dev/null 2>&1 || die "$tool is not installed."
+  done
+  [ -x "$ROOT/apps/server/node_modules/.bin/tsx" ] || die "dependencies are not installed. Run: pnpm install"
+
+  if loaded; then launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true; fi
+  write_plist
+  launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+  launchctl bootstrap "$DOMAIN" "$PLIST"
+  link_cli
+
+  echo "claude-remote: installed; it will start at login from now on."
+  echo "claude-remote: starting (the first one builds the web app, which takes a moment)"
+  if wait_for_health; then
+    cmd_status
+  else
+    echo "claude-remote: it did not answer on $LOCAL_URL. Last of the log:" >&2
+    tail -20 "$LOG" >&2 || true
+    exit 1
+  fi
+}
+
+cmd_uninstall() {
+  if loaded; then launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true; fi
+  launchctl disable "$DOMAIN/$LABEL" 2>/dev/null || true
+  rm -f "$PLIST"
+  if [ "$(readlink "$BIN" 2>/dev/null || true)" = "$ROOT/scripts/claude-remote" ]; then rm -f "$BIN"; fi
+  echo "claude-remote: removed. The repo, the database and the logs are untouched."
+}
+
+# ------------------------------------------------------------------ run
+
+cmd_start() {
+  [ -f "$PLIST" ] || die "not installed yet. Run: $ROOT/scripts/claude-remote install"
+  # `disable` is what makes a stop stick across logins, so undo it here.
+  launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+  loaded || launchctl bootstrap "$DOMAIN" "$PLIST"
+  wait_for_health || { echo "claude-remote: no answer on $LOCAL_URL yet — try \`claude-remote logs\`." >&2; exit 1; }
+  cmd_status
+}
+
+cmd_stop() {
+  # Disable as well as bootout: stop should mean stopped, not stopped until
+  # you next log in. `start` re-enables.
+  launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+  launchctl disable "$DOMAIN/$LABEL" 2>/dev/null || true
+  echo "claude-remote: stopped."
+  echo "claude-remote: tmux sessions keep running — this only stops the server in front of them."
+}
+
+cmd_restart() {
+  [ -f "$PLIST" ] || die "not installed yet. Run: $ROOT/scripts/claude-remote install"
+  if loaded; then
+    launchctl kickstart -k "$DOMAIN/$LABEL"
+  else
+    launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+    launchctl bootstrap "$DOMAIN" "$PLIST"
+  fi
+  wait_for_health || { echo "claude-remote: no answer on $LOCAL_URL yet — try \`claude-remote logs\`." >&2; exit 1; }
+  cmd_status
+}
+
+cmd_status() {
+  if [ ! -f "$PLIST" ]; then
+    echo "  not installed   run: $ROOT/scripts/claude-remote install"
+    return 0
+  fi
+  local pid uptime health
+  pid="$(running_pid || true)"
+  if [ -n "$pid" ]; then
+    uptime="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    echo "  running         pid $pid, up ${uptime:-?}"
+  elif loaded; then
+    echo "  loaded          not running right now — see \`claude-remote logs\`"
+  else
+    echo "  stopped         run: claude-remote start"
+  fi
+
+  local up=""
+  if health="$(curl -fsS --max-time 2 "$LOCAL_URL/api/health" 2>/dev/null)"; then
+    up=1
+    echo "  local           $LOCAL_URL"
+    echo "                  $(echo "$health" | sed 's/[{}"]//g')"
+  else
+    echo "  local           $LOCAL_URL (not answering)"
+  fi
+
+  # The tailnet URL is only worth diagnosing when the server itself is up:
+  # otherwise it is down for the obvious reason, and blaming Tailscale for it
+  # would send you off fixing the wrong thing.
+  if [ -n "$PUBLIC_URL" ]; then
+    if [ -z "$up" ]; then
+      echo "  tailnet         $PUBLIC_URL"
+    elif curl -fsS -o /dev/null --max-time 4 "$PUBLIC_URL/api/health" 2>/dev/null; then
+      echo "  tailnet         $PUBLIC_URL"
+    else
+      echo "  tailnet         $PUBLIC_URL (not answering — is \`tailscale serve\` still set for $PORT?)"
+    fi
+  fi
+  echo "  log             $LOG"
+}
+
+cmd_logs() {
+  [ -f "$LOG" ] || die "no log yet at $LOG"
+  # Production logs are JSON, which is unreadable in a terminal. The server
+  # already ships the formatter it uses in development.
+  local pretty="$ROOT/apps/server/node_modules/.bin/pino-pretty"
+  local follow=""
+  case "${1:-}" in -f|--follow) follow=1 ;; esac
+  if [ -x "$pretty" ]; then
+    if [ -n "$follow" ]; then tail -n 100 -f "$LOG" | "$pretty" -t 'HH:MM:ss' -i pid,hostname
+    else tail -n 200 "$LOG" | "$pretty" -t 'HH:MM:ss' -i pid,hostname; fi
+  else
+    if [ -n "$follow" ]; then tail -n 100 -f "$LOG"; else tail -n 200 "$LOG"; fi
+  fi
+}
+
+cmd_open() {
+  local url="${PUBLIC_URL:-$LOCAL_URL}"
+  healthy || echo "claude-remote: it is not answering locally; opening anyway." >&2
+  open "$url"
+}
+
+case "${1:-status}" in
+  install)   cmd_install ;;
+  uninstall) cmd_uninstall ;;
+  start)     cmd_start ;;
+  stop)      cmd_stop ;;
+  restart)   cmd_restart ;;
+  status)    cmd_status ;;
+  logs)      shift || true; cmd_logs "${1:-}" ;;
+  open)      cmd_open ;;
+  -h|--help|help) sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command \"$1\". Try: claude-remote help" ;;
+esac

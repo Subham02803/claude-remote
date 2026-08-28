@@ -34,6 +34,42 @@ and there is no second address to pick between.
 Out of the box that is reachable from this machine only, and needs no `.env` at
 all. To reach it from your phone, see below.
 
+## Running it as a background service
+
+`pnpm dev` is for working on this app. For *using* it, install it as a service
+and stop thinking about it:
+
+```bash
+./scripts/claude-remote install
+```
+
+That registers a launchd agent that starts the server at login, restarts it if
+it falls over, and puts a `claude-remote` command on your PATH. Nothing to
+open and no terminal to keep alive — the URL just answers, from your phone as
+well.
+
+| Command | What it does |
+| --- | --- |
+| `claude-remote status` | Running or not, the pid, both URLs |
+| `claude-remote stop` / `start` / `restart` | Control it now; a stop stays stopped |
+| `claude-remote logs -f` | Follow the server log |
+| `claude-remote open` | Open the web app |
+| `claude-remote uninstall` | Remove the service; the repo and database stay |
+
+It runs as you, from this checkout, so it can drive `claude` in tmux with your
+credentials — the same footing a terminal gives it. Two things follow from
+that. It is a *login* agent: a Mac sitting at the login screen after a reboot
+is not running it. And it serves the built web app, rebuilding first whenever
+`apps/web` has changed since the last build — so your edits still show up,
+a second or two later, without you remembering to build.
+
+Running `pnpm dev` stops the service first, since they want the same port; it
+comes back at your next login, or on `claude-remote start`.
+
+Two things need re-running `install`: moving this checkout, and changing where
+`node` lives (an nvm upgrade). launchd starts agents with a bare PATH, so the
+one you had at install time is baked into the agent.
+
 ## Reaching it from your phone or another computer
 
 There is no sign-in. The network is the gate: the server binds where only your
@@ -127,6 +163,7 @@ docs               Scope and decisions
 
 | Command | What it does |
 | --- | --- |
+| `./scripts/claude-remote install` | Run it as a background service, for good |
 | `pnpm dev` | Everything on port 4180, watching |
 | `pnpm dev:server` | The same thing without the wrapper script |
 | `pnpm dev:web` | Vite alone on 5173, proxying the API — rarely needed |
