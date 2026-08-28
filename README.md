@@ -26,8 +26,10 @@ cp .env.example .env
 pnpm dev
 ```
 
-That starts the API on <http://127.0.0.1:4180> and the web app on
-<http://127.0.0.1:5173>. Open the second one.
+That starts everything on one port: open <http://127.0.0.1:4180>. The API, the
+terminal socket and the web app share that origin — in development the assets
+come from Vite running inside the server process, so hot reload works as usual
+and there is no second address to pick between.
 
 Out of the box that is reachable from this machine only, and needs no `.env` at
 all. To reach it from your phone, see below.
@@ -125,8 +127,9 @@ docs               Scope and decisions
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | API and web app together, both watching |
-| `pnpm dev:server` / `pnpm dev:web` | One at a time |
+| `pnpm dev` | Everything on port 4180, watching |
+| `pnpm dev:server` | The same thing without the wrapper script |
+| `pnpm dev:web` | Vite alone on 5173, proxying the API — rarely needed |
 | `pnpm typecheck` | TypeScript across every package |
 | `pnpm check` / `pnpm format` | Lint / lint and fix |
 | `docker compose up --build` | The whole app in a container on 7420 |
